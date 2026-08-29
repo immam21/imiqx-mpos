@@ -50,6 +50,17 @@ function encode(value) {
   return encodeURIComponent(String(value));
 }
 
+function getRouteSegments(req) {
+  const rawRoute = req.query && req.query.route;
+  if (Array.isArray(rawRoute)) {
+    return rawRoute.filter(Boolean);
+  }
+  if (typeof rawRoute === "string" && rawRoute.trim()) {
+    return rawRoute.split("/").filter(Boolean);
+  }
+  return [];
+}
+
 function titleCaseStatus(value) {
   const v = String(value || "");
   return v ? v.charAt(0).toUpperCase() + v.slice(1) : v;
@@ -231,7 +242,7 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const route = Array.isArray(req.query.route) ? req.query.route.join("/") : "";
+  const route = getRouteSegments(req).join("/");
   const pathname = `/v1/${route}`;
 
   try {
