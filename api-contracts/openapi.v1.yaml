@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: API contracts for OneCounter frontend modules and integrations.
 servers:
-  - url: http://localhost:8787
+  - url: https://immam21-imiqx-mpos.vercel.app
     description: Local mock server
 security:
   - bearerAuth: []
