@@ -154,6 +154,47 @@
       <div class="error" id="error"></div>
     </form>
 
+    <details id="user-admin" style="margin-top:14px;">
+      <summary style="cursor:pointer; font-weight:600; font-size:13px; color:#334155;">Manage Users</summary>
+      <div style="margin-top:10px; display:grid; gap:10px;">
+        <div style="display:flex; gap:16px; font-size:13px; font-weight:600;">
+          <label style="display:flex; flex-direction:row; align-items:center; gap:6px;"><input type="radio" name="user-mode" value="add" checked style="padding:0;" /> Add user</label>
+          <label style="display:flex; flex-direction:row; align-items:center; gap:6px;"><input type="radio" name="user-mode" value="remove" style="padding:0;" /> Remove user</label>
+        </div>
+
+        <div id="add-user-fields" style="display:grid; gap:10px;">
+          <label>User ID (email)
+            <input id="nu-email" type="email" autocomplete="off" placeholder="user@store.com" />
+          </label>
+          <label>Password
+            <input id="nu-password" type="password" autocomplete="new-password" placeholder="min 6 characters" />
+          </label>
+          <label>Role
+            <select id="nu-role">
+              <option value="cashier">Cashier</option>
+              <option value="manager" selected>Manager</option>
+              <option value="admin">Admin</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="remove-user-fields" style="display:none; gap:10px;">
+          <label>Select user
+            <select id="ru-user"><option value="">Select "Remove user" to load</option></select>
+          </label>
+        </div>
+
+        <label>Admin Code
+          <input id="ua-code" type="password" inputmode="numeric" autocomplete="off" placeholder="Enter admin code" />
+        </label>
+        <label style="display:flex; flex-direction:row; align-items:center; gap:6px; font-weight:600;">
+          <input id="ua-confirm" type="checkbox" style="padding:0; width:auto;" /> I confirm this action
+        </label>
+        <button type="button" id="ua-submit">Submit</button>
+        <div class="error" id="ua-status"></div>
+      </div>
+    </details>
+
     <div class="hint">
       Credentials are validated from the backend credential database.
     </div>
@@ -257,6 +298,112 @@
     } finally {
       submitBtn.disabled = false;
       submitBtn.textContent = "Sign In";
+    }
+  });
+
+  // ---- User management (add/remove) ----
+  const uaStatus = document.getElementById("ua-status");
+  const addFields = document.getElementById("add-user-fields");
+  const removeFields = document.getElementById("remove-user-fields");
+  const ruUser = document.getElementById("ru-user");
+
+  function currentUserMode() {
+    const checked = document.querySelector("input[name='user-mode']:checked");
+    return checked ? checked.value : "add";
+  }
+
+  async function loadUserList() {
+    ruUser.innerHTML = "<option value=''>Loading...</option>";
+    try {
+      const res = await fetch(`${APP_CONFIG.apiBaseUrl}/v1/admin/users`);
+      const data = await res.json();
+      const users = Array.isArray(data.users) ? data.users : [];
+      if (!users.length) {
+        ruUser.innerHTML = "<option value=''>No users found</option>";
+        return;
+      }
+      ruUser.innerHTML = users
+        .map((u) => `<option value="${u.id}">${u.email}${u.role ? " (" + u.role + ")" : ""}</option>`)
+        .join("");
+    } catch (_) {
+      ruUser.innerHTML = "<option value=''>Failed to load users</option>";
+    }
+  }
+
+  document.querySelectorAll("input[name='user-mode']").forEach((radio) => {
+    radio.addEventListener("change", () => {
+      uaStatus.textContent = "";
+      uaStatus.style.color = "";
+      const isAdd = currentUserMode() === "add";
+      addFields.style.display = isAdd ? "grid" : "none";
+      removeFields.style.display = isAdd ? "none" : "grid";
+      if (!isAdd) {
+        loadUserList();
+      }
+    });
+  });
+
+  document.getElementById("ua-submit").addEventListener("click", async () => {
+    const mode = currentUserMode();
+    const code = document.getElementById("ua-code").value.trim();
+    const confirmed = document.getElementById("ua-confirm").checked;
+    uaStatus.style.color = "#b91c1c";
+
+    if (!code) {
+      uaStatus.textContent = "Admin code is required.";
+      return;
+    }
+    if (!confirmed) {
+      uaStatus.textContent = "Please confirm the action.";
+      return;
+    }
+
+    try {
+      if (mode === "add") {
+        const email = document.getElementById("nu-email").value.trim();
+        const password = document.getElementById("nu-password").value;
+        const role = document.getElementById("nu-role").value;
+        if (!email || !password) {
+          uaStatus.textContent = "Email and password are required.";
+          return;
+        }
+        const res = await fetch(`${APP_CONFIG.apiBaseUrl}/v1/admin/users`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ admin_code: code, email, password, role })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || data.error || "Failed to add user");
+        }
+        uaStatus.style.color = "#15803d";
+        uaStatus.textContent = `User added: ${email}`;
+        document.getElementById("nu-email").value = "";
+        document.getElementById("nu-password").value = "";
+      } else {
+        const userId = ruUser.value;
+        if (!userId) {
+          uaStatus.textContent = "Select a user to remove.";
+          return;
+        }
+        const res = await fetch(`${APP_CONFIG.apiBaseUrl}/v1/admin/users/delete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ admin_code: code, user_id: userId })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || data.error || "Failed to remove user");
+        }
+        uaStatus.style.color = "#15803d";
+        uaStatus.textContent = "User removed.";
+        loadUserList();
+      }
+      document.getElementById("ua-code").value = "";
+      document.getElementById("ua-confirm").checked = false;
+    } catch (err) {
+      uaStatus.style.color = "#b91c1c";
+      uaStatus.textContent = err.message || "Action failed.";
     }
   });
 </script>

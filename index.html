@@ -603,9 +603,6 @@
           <span aria-hidden="true">Search</span>
           <input type="search" id="global-search" placeholder="SKU, order, customer..." />
         </label>
-        <button class="btn" type="button" data-qa="sale">New Sale</button>
-        <button class="btn" type="button" data-qa="po">New PO</button>
-        <button class="btn primary" type="button" data-qa="campaign">New Campaign</button>
       </div>
     </header>
     <section id="view-root" class="content" tabindex="-1"></section>
@@ -642,7 +639,38 @@
   </div>
 </div>
 
+<div id="scanner-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="scanner-title">
+  <div class="modal-card">
+    <h2 id="scanner-title" class="modal-title">Scan Barcode</h2>
+    <p style="font-size:12px; color:var(--color-muted-foreground); margin:6px 0 8px;">Point the camera at a product barcode.</p>
+    <div id="scanner-view" style="width:100%; min-height:240px; border-radius:12px; overflow:hidden; background:#000;"></div>
+    <div id="scanner-error" class="muted" style="font-size:12px; margin-top:8px;"></div>
+    <div class="modal-actions">
+      <button id="scanner-close" class="btn" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="order-confirmed-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="oc-title">
+  <div class="modal-card">
+    <h2 id="oc-title" class="modal-title">Order Confirmed</h2>
+    <p style="font-size:12px; color:var(--color-muted-foreground); margin:6px 0 8px;">Payment recorded. Choose an action:</p>
+    <div id="oc-summary" class="mono" style="font-size:12px; display:grid; gap:6px; padding:10px; background:#F8FAFC; border-radius:10px;"></div>
+    <div class="modal-actions" style="justify-content:stretch; gap:8px;">
+      <button id="oc-whatsapp" class="btn" type="button" style="flex:1;">Send WhatsApp Bill</button>
+      <button id="oc-print" class="btn primary" type="button" style="flex:1;">Print Bill</button>
+    </div>
+    <div class="modal-actions">
+      <button id="oc-close" class="btn" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
 <script src="config.local.js"></script>
+<script src="vendor/JsBarcode.all.min.js"></script>
+<script src="vendor/qrcode.min.js"></script>
+<script src="vendor/jspdf.umd.min.js"></script>
+<script src="vendor/html5-qrcode.min.js"></script>
 <script>
   const money = (n) => "\u20B9" + n.toLocaleString("en-IN");
 
@@ -665,7 +693,12 @@
     inventory: "/v1/inventory/products",
     inventoryLedger: "/v1/inventory/ledger",
     labelPrint: "/v1/inventory/labels/print",
+    stockIn: "/v1/inventory/stock",
+    productLookup: "/v1/pos/product-lookup",
+    receiptContext: "/v1/pos/receipt-context",
     customers: "/v1/customers",
+    customerLookup: "/v1/customers/lookup",
+    customerDetail: "/v1/customers/detail",
     promotions: "/v1/promotions/campaigns",
     reports: "/v1/reports/tax-summary",
     topProducts: "/v1/reports/top-products",
@@ -691,12 +724,16 @@
     settings: ["businesses", "stores", "users", "roles", "invoice_series"]
   };
 
-  const POS_CART = [
-    ["Tata Salt 1kg", "TS-1KG", 2, 28],
-    ["Aashirvaad Atta 5kg", "AA-5KG", 1, 265],
-    ["Amul Milk 500ml", "AM-500", 4, 27],
-    ["Good Day Biscuit", "GD-100", 2, 30]
-  ];
+  const POS_STATE = {
+    customer: { name: "", phone: "", place: "", existing: false, searched: false },
+    cart: [],
+    paymentMode: "cash",
+    markPaid: true,
+    catalog: [],
+    lastSale: null
+  };
+
+  const CUST_STATE = { filter: "", detail: null };
 
   const appState = {
     activeTab: "dashboard",
@@ -1064,51 +1101,382 @@
     }
   }
 
-  async function submitPosSale() {
-    const subtotal = POS_CART.reduce((acc, row) => acc + (row[2] * row[3]), 0);
-    const taxAmount = Math.round(subtotal * 0.05);
-    const discountAmount = 35;
-    const totalAmount = subtotal + taxAmount - discountAmount;
+  function posTotals() {
+    let subtotal = 0;
+    let tax = 0;
+    POS_STATE.cart.forEach((l) => {
+      const lineSub = l.qty * l.unit_price;
+      subtotal += lineSub;
+      tax += (lineSub * (Number(l.tax_percent) || 0)) / 100;
+    });
+    subtotal = Math.round(subtotal * 100) / 100;
+    tax = Math.round(tax * 100) / 100;
+    return { subtotal, tax, total: Math.round((subtotal + tax) * 100) / 100 };
+  }
 
+  function posRerender() {
+    if (appState.activeTab !== "pos") {
+      return;
+    }
+    document.getElementById("view-root").innerHTML = page.pos();
+    wireView("pos");
+  }
+
+  let scannerInstance = null;
+
+  async function openScanner() {
+    const modal = document.getElementById("scanner-modal");
+    const errEl = document.getElementById("scanner-error");
+    errEl.textContent = "";
+    if (!window.Html5Qrcode) {
+      showToast("Scanner library not loaded");
+      return;
+    }
+    modal.classList.add("show");
+    try {
+      scannerInstance = new Html5Qrcode("scanner-view", { verbose: false });
+      await scannerInstance.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 150 } },
+        (decodedText) => {
+          const scan = document.getElementById("pos-scan");
+          if (scan) {
+            scan.value = decodedText;
+          }
+          closeScanner();
+          posAddItem();
+        },
+        () => {}
+      );
+    } catch (err) {
+      errEl.textContent = "Unable to access camera: " + (err && err.message ? err.message : String(err));
+    }
+  }
+
+  async function closeScanner() {
+    const modal = document.getElementById("scanner-modal");
+    modal.classList.remove("show");
+    if (scannerInstance) {
+      try {
+        await scannerInstance.stop();
+      } catch (_) {
+        // already stopped
+      }
+      try {
+        await scannerInstance.clear();
+      } catch (_) {
+        // ignore
+      }
+      scannerInstance = null;
+    }
+  }
+
+  async function posAddItem() {
+    const input = document.getElementById("pos-scan");
+    const code = input ? input.value.trim() : "";
+    if (!code) {
+      showToast("Enter a barcode or SKU");
+      return;
+    }
+    try {
+      const p = await apiFetch(`${API_ENDPOINTS.productLookup}?code=${encodeURIComponent(code)}`);
+      if (Number(p.available_qty) <= 0) {
+        showToast(`Out of stock: ${p.name}`);
+        return;
+      }
+      const existing = POS_STATE.cart.find((l) => l.sku === p.sku);
+      const inCart = existing ? existing.qty : 0;
+      if (inCart + 1 > Number(p.available_qty)) {
+        showToast(`Only ${p.available_qty} in stock for ${p.name}`);
+        return;
+      }
+      if (existing) {
+        existing.qty += 1;
+      } else {
+        POS_STATE.cart.push({
+          sku: p.sku,
+          name: p.name,
+          qty: 1,
+          unit_price: Number(p.unit_price),
+          tax_percent: Number(p.tax_percent),
+          available: Number(p.available_qty)
+        });
+      }
+      posRerender();
+    } catch (_) {
+      showToast("Item not found in inventory");
+    }
+  }
+
+  function posChangeQty(sku, delta) {
+    const line = POS_STATE.cart.find((l) => l.sku === sku);
+    if (!line) {
+      return;
+    }
+    const next = line.qty + delta;
+    if (next <= 0) {
+      POS_STATE.cart = POS_STATE.cart.filter((l) => l.sku !== sku);
+    } else if (next > Number(line.available)) {
+      showToast(`Only ${line.available} in stock`);
+      return;
+    } else {
+      line.qty = next;
+    }
+    posRerender();
+  }
+
+  function posRemove(sku) {
+    POS_STATE.cart = POS_STATE.cart.filter((l) => l.sku !== sku);
+    posRerender();
+  }
+
+  function posSetPayment(mode) {
+    POS_STATE.paymentMode = mode === "upi" ? "upi" : "cash";
+    posRerender();
+  }
+
+  async function loadPosCatalog() {
+    try {
+      const data = await apiFetch(API_ENDPOINTS.inventory);
+      POS_STATE.catalog = (data.products || []).map((p) => ({ sku: p.sku, name: p.name, price: p.price || 0 }));
+    } catch (_) {
+      POS_STATE.catalog = [];
+    }
+  }
+
+  async function posCustomerSearch() {
+    const phone = (POS_STATE.customer.phone || "").trim();
+    if (!/^\d{10}$/.test(phone.replace(/\D/g, "").slice(-10))) {
+      showToast("Enter a valid 10-digit mobile number");
+      return;
+    }
+    try {
+      const res = await apiFetch(`${API_ENDPOINTS.customerLookup}?phone=${encodeURIComponent(phone)}`);
+      if (res.found) {
+        POS_STATE.customer.name = res.customer.name || "";
+        POS_STATE.customer.place = res.customer.place || "";
+        POS_STATE.customer.existing = true;
+        showToast(`Loaded customer: ${res.customer.name}`);
+      } else {
+        POS_STATE.customer.name = "";
+        POS_STATE.customer.place = "";
+        POS_STATE.customer.existing = false;
+        showToast("New customer — enter name and place");
+      }
+      POS_STATE.customer.searched = true;
+      posRerender();
+    } catch (_) {
+      showToast("Customer search failed");
+    }
+  }
+
+  async function posConfirmOrder() {
+    if (!POS_STATE.cart.length) {
+      showToast("Cart is empty");
+      return;
+    }
+    const custName = (POS_STATE.customer.name || "").trim();
+    const custPhone = (POS_STATE.customer.phone || "").trim();
+    const custPlace = (POS_STATE.customer.place || "").trim();
+    if (!custName || !custPhone) {
+      showToast("Customer name and mobile number are required");
+      return;
+    }
+    if (!/^\d{10}$/.test(custPhone.replace(/\D/g, "").slice(-10))) {
+      showToast("Enter a valid 10-digit mobile number");
+      return;
+    }
+    const markPaid = POS_STATE.markPaid;
+    const t = posTotals();
     const payload = {
       store_id: appState.currentStoreId,
       business_id: APP_CONFIG.businessId,
       channel: "in_store",
-      customer: { id: null, name: "Walk-in" },
-      status: "paid",
-      items: POS_CART.map((row) => ({
-        name: row[0],
-        sku: row[1],
-        quantity: row[2],
-        unit_price: row[3],
-        line_total: row[2] * row[3]
+      customer: { name: custName, phone: custPhone, place: custPlace },
+      status: markPaid ? "paid" : "created",
+      items: POS_STATE.cart.map((l) => ({
+        sku: l.sku,
+        name: l.name,
+        quantity: l.qty,
+        unit_price: l.unit_price,
+        line_total: Math.round(l.qty * l.unit_price * 100) / 100
       })),
-      totals: {
-        subtotal,
-        tax_amount: taxAmount,
-        discount_amount: discountAmount,
-        total_amount: totalAmount
-      },
-      payments: [
-        { mode: "cash", amount: 300 },
-        { mode: "upi", amount: 458 },
-        { mode: "card", amount: totalAmount - 758 }
-      ],
-      metadata: {
-        source: "pwa-pos",
-        created_at: new Date().toISOString()
-      }
+      totals: { subtotal: t.subtotal, tax_amount: t.tax, discount_amount: 0, total_amount: t.total },
+      payments: markPaid ? [{ mode: POS_STATE.paymentMode, amount: t.total }] : []
     };
-
     try {
-      const data = await apiFetch(API_ENDPOINTS.posSales, {
-        method: "POST",
-        body: JSON.stringify(payload)
-      });
-      showToast(`Sale posted: ${data.sale_id || "created"}`);
+      const data = await apiFetch(API_ENDPOINTS.posSales, { method: "POST", body: JSON.stringify(payload) });
+      const sale = {
+        sale_id: data.sale_id,
+        items: POS_STATE.cart.map((l) => ({ ...l })),
+        totals: t,
+        customer: { name: custName, phone: custPhone, place: custPlace },
+        mode: POS_STATE.paymentMode,
+        paid: markPaid,
+        at: new Date()
+      };
+      POS_STATE.lastSale = sale;
+      appState.loaded.inventory = false;
+      appState.loaded.dashboard = false;
+      appState.loaded.orders = false;
+      appState.loaded.customers = false;
+      POS_STATE.cart = [];
+      POS_STATE.customer = { name: "", phone: "", place: "", existing: false, searched: false };
+      POS_STATE.paymentMode = "cash";
+      POS_STATE.markPaid = true;
+      await loadPosCatalog();
+      posRerender();
+      openOrderConfirmed(sale);
+    } catch (err) {
+      showToast("Order failed: " + (err.message || "error"));
+    }
+  }
+
+  function openOrderConfirmed(sale) {
+    const modal = document.getElementById("order-confirmed-modal");
+    const summary = document.getElementById("oc-summary");
+    if (summary) {
+      summary.innerHTML = `
+        <div style="display:flex; justify-content:space-between;"><span>Bill</span><span class="mono">${sale.sale_id}</span></div>
+        <div style="display:flex; justify-content:space-between;"><span>Customer</span><span>${sale.customer.name}</span></div>
+        <div style="display:flex; justify-content:space-between;"><span>Mobile</span><span class="mono">${sale.customer.phone}</span></div>
+        <div style="display:flex; justify-content:space-between;"><span>Items</span><span>${sale.items.reduce((a, l) => a + l.qty, 0)}</span></div>
+        <div style="display:flex; justify-content:space-between; font-weight:700;"><span>Total</span><span class="mono">${money(sale.totals.total)}</span></div>`;
+    }
+    if (modal) {
+      modal.classList.add("show");
+    }
+  }
+
+  function closeOrderConfirmed() {
+    const modal = document.getElementById("order-confirmed-modal");
+    if (modal) {
+      modal.classList.remove("show");
+    }
+  }
+
+  function buildBillMessage(sale) {
+    const bizName = (appState.receiptContext && appState.receiptContext.business && appState.receiptContext.business.name) || "OneCounter";
+    const lines = sale.items.map((l) => `- ${l.name} x${l.qty} = ${money(l.qty * l.unit_price)}`).join("\n");
+    const ebillUrl = `${window.location.origin}/receipt.html?id=${encodeURIComponent(sale.sale_id)}`;
+    return (
+      `*${bizName}*\n` +
+      `Bill: ${sale.sale_id}\n` +
+      `Date: ${new Date(sale.at).toLocaleString()}\n` +
+      `Customer: ${sale.customer.name}\n\n` +
+      `${lines}\n\n` +
+      `Subtotal: ${money(sale.totals.subtotal)}\n` +
+      `GST: ${money(sale.totals.tax)}\n` +
+      `*Total: ${money(sale.totals.total)}*\n` +
+      `${sale.paid === false ? "Payment: PENDING" : "Paid via " + String(sale.mode || "cash").toUpperCase()}\n\n` +
+      `View your e-bill: ${ebillUrl}\n\n` +
+      `Thank you for shopping with us!`
+    );
+  }
+
+  async function sendWhatsAppBill(sale) {
+    if (!sale || !sale.customer || !sale.customer.phone) {
+      showToast("No customer mobile number on this bill");
       return;
+    }
+    // Ensure business name is available for the message.
+    if (!appState.receiptContext) {
+      try {
+        appState.receiptContext = await apiFetch(API_ENDPOINTS.receiptContext);
+      } catch (_) {
+        // continue with default name
+      }
+    }
+    const message = buildBillMessage(sale);
+    const digits = sale.customer.phone.replace(/\D/g, "");
+    const waNumber = digits.length === 10 ? `91${digits}` : digits;
+    // Record the event in the backend (best-effort).
+    try {
+      await apiFetch(API_ENDPOINTS.whatsappReceipt, {
+        method: "POST",
+        body: JSON.stringify({ phone: sale.customer.phone, reference_id: sale.sale_id, template: "BILL_V1", message })
+      });
     } catch (_) {
-      showToast("Network issue: request sent to service-worker queue");
+      // best-effort logging
+    }
+    window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(message)}`, "_blank");
+    showToast("Opening WhatsApp with bill message");
+  }
+
+  function customersRerender() {
+    if (appState.activeTab !== "customers") {
+      return;
+    }
+    document.getElementById("view-root").innerHTML = page.customers();
+    wireView("customers");
+  }
+
+  async function saveCustomer() {
+    const name = (document.getElementById("cust-add-name")?.value || "").trim();
+    const phone = (document.getElementById("cust-add-phone")?.value || "").trim();
+    const place = (document.getElementById("cust-add-place")?.value || "").trim();
+    if (!name || !phone) {
+      showToast("Name and mobile are required");
+      return;
+    }
+    if (!/^\d{10}$/.test(phone.replace(/\D/g, "").slice(-10))) {
+      showToast("Enter a valid 10-digit mobile number");
+      return;
+    }
+    try {
+      await apiFetch(API_ENDPOINTS.customers, { method: "POST", body: JSON.stringify({ name, phone, place }) });
+      showToast("Customer saved");
+      appState.customers = await apiFetch(API_ENDPOINTS.customers);
+      appState.loaded.customers = true;
+      customersRerender();
+    } catch (err) {
+      showToast("Save failed: " + (err.message || "error"));
+    }
+  }
+
+  async function viewCustomer(id) {
+    if (!id) return;
+    try {
+      CUST_STATE.detail = await apiFetch(`${API_ENDPOINTS.customerDetail}?id=${encodeURIComponent(id)}`);
+      customersRerender();
+    } catch (_) {
+      showToast("Unable to load customer details");
+    }
+  }
+
+  function searchCustomers() {
+    const el = document.getElementById("cust-search");
+    CUST_STATE.filter = el ? el.value.trim() : "";
+    customersRerender();
+  }
+
+  function clearCustomerSearch() {
+    CUST_STATE.filter = "";
+    customersRerender();
+  }
+
+  async function saveSettings() {
+    const payload = {
+      business_name: fieldVal("set-business-name"),
+      gstin: fieldVal("set-gstin"),
+      pan: fieldVal("set-pan"),
+      invoice_prefix: fieldVal("set-invoice-prefix"),
+      store_name: fieldVal("set-store-name"),
+      store_address: fieldVal("set-store-address"),
+      store_city: fieldVal("set-store-city"),
+      store_state: fieldVal("set-store-state"),
+      store_pincode: fieldVal("set-store-pincode")
+    };
+    try {
+      await apiFetch(API_ENDPOINTS.settings, { method: "POST", body: JSON.stringify(payload) });
+      showToast("Business details saved");
+      appState.settings = await apiFetch(API_ENDPOINTS.settings);
+      appState.receiptContext = null; // refresh cached bill header
+      if (appState.activeTab === "settings") {
+        document.getElementById("view-root").innerHTML = page.settings();
+      }
+    } catch (err) {
+      showToast("Save failed: " + (err.message || "error"));
     }
   }
 
@@ -1145,35 +1513,246 @@
     }
   }
 
-  async function sendWhatsAppReceipt() {
+  function pdfMoney(n) {
+    return "Rs " + Number(n || 0).toFixed(2);
+  }
+
+  function barcodeDataUrl(text) {
     try {
-      await apiFetch(API_ENDPOINTS.whatsappReceipt, {
-        method: "POST",
-        body: JSON.stringify({
-          phone: "+919999999999",
-          reference_id: `SALE-${Date.now()}`,
-          template: "RECEIPT_V1"
-        })
-      });
-      showToast("Receipt pushed to WhatsApp");
-      appState.loaded.integrations = false;
+      const canvas = document.createElement("canvas");
+      window.JsBarcode(canvas, String(text), { format: "CODE128", displayValue: false, margin: 0, width: 2, height: 40 });
+      return canvas.toDataURL("image/png");
     } catch (_) {
-      showToast("Receipt dispatch failed");
+      return "";
     }
   }
 
-  async function printLabels() {
-    const startSku = document.getElementById("label-start-sku")?.value?.trim() || "";
-    const endSku = document.getElementById("label-end-sku")?.value?.trim() || startSku;
-    const copies = Number(document.getElementById("label-copies")?.value || "1");
+  function openPdf(doc, filename) {
     try {
-      const data = await apiFetch(API_ENDPOINTS.labelPrint, {
-        method: "POST",
-        body: JSON.stringify({ start_sku: startSku, end_sku: endSku, copies })
-      });
-      showToast(`Label job created: ${data.job_id || "queued"}`);
+      const url = doc.output("bloburl");
+      const win = window.open(url, "_blank");
+      if (!win) {
+        doc.save(filename);
+      }
     } catch (_) {
-      showToast("Label print failed");
+      doc.save(filename);
+    }
+  }
+
+  async function getBusinessName() {
+    if (!appState.receiptContext) {
+      try {
+        appState.receiptContext = await apiFetch(API_ENDPOINTS.receiptContext);
+      } catch (_) {
+        appState.receiptContext = { business: {}, store: {} };
+      }
+    }
+    return (appState.receiptContext.business && appState.receiptContext.business.name) || "OneCounter";
+  }
+
+  // Draw one 50mm x 25mm label onto the given jsPDF doc.
+  // Layout: business + product name (centered), code, struck MRP + highlighted
+  // offer price ("OUR PRICE"), centered barcode, code under barcode.
+  function drawLabel(doc, p, businessName) {
+    const offer = Number(p.price || 0);
+    const mrp = Number(p.mrp || 0);
+    const hasOffer = mrp > offer;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text(String(businessName || "").toUpperCase().slice(0, 30), 25, 3.8, { align: "center" });
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    const pname = String(p.name || "").toUpperCase();
+    doc.text(pname.length > 34 ? pname.slice(0, 34) : pname, 25, 7.2, { align: "center" });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.text(String(p.sku), 3, 11);
+
+    const priceY = 14.2;
+    if (hasOffer) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      const mrpText = `MRP ${pdfMoney(mrp)}`;
+      doc.text(mrpText, 3, priceY);
+      const w = doc.getTextWidth(mrpText);
+      doc.setLineWidth(0.3);
+      doc.line(3, priceY - 1, 3 + w, priceY - 1); // strikethrough
+    } else {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text("PRICE", 3, priceY);
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text(pdfMoney(offer), 47, priceY, { align: "right" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(4.5);
+    doc.text("OUR PRICE", 47, priceY + 2.4, { align: "right" });
+
+    const img = barcodeDataUrl(p.barcode || p.sku);
+    if (img) {
+      doc.addImage(img, "PNG", 4, 16, 42, 5);
+    }
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6);
+    doc.text(String(p.barcode || p.sku), 25, 24, { align: "center" });
+  }
+
+  // 25mm x 50mm label: "Business Name - Product Name", code, price, barcode.
+  async function printProductLabel(p) {
+    if (!window.jspdf) {
+      showToast("PDF library not loaded");
+      return;
+    }
+    const businessName = await getBusinessName();
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "mm", format: [50, 25], orientation: "landscape" });
+    drawLabel(doc, p, businessName);
+    openPdf(doc, `label-${p.sku}.pdf`);
+  }
+
+  // Multi-label PDF (one label per page) for the selected products.
+  async function printLabelsForProducts(products) {
+    if (!products.length) {
+      showToast("Select at least one item to print");
+      return;
+    }
+    if (!window.jspdf) {
+      showToast("PDF library not loaded");
+      return;
+    }
+    const businessName = await getBusinessName();
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "mm", format: [50, 25], orientation: "landscape" });
+    products.forEach((p, i) => {
+      if (i > 0) {
+        doc.addPage([50, 25], "landscape");
+      }
+      drawLabel(doc, p, businessName);
+    });
+    openPdf(doc, `labels-${products.length}.pdf`);
+  }
+
+  // 4in x 6in bill with business + store details.
+  async function posPrintBill(sale) {
+    if (!sale) {
+      showToast("No sale to print");
+      return;
+    }
+    let rc = appState.receiptContext;
+    if (!rc) {
+      try {
+        rc = await apiFetch(API_ENDPOINTS.receiptContext);
+        appState.receiptContext = rc;
+      } catch (_) {
+        rc = { business: {}, store: {} };
+      }
+    }
+    const biz = rc.business || {};
+    const store = rc.store || {};
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "in", format: [4, 6] });
+    let y = 0.35;
+    const left = 0.25;
+    const right = 3.75;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.text(biz.name || "Tax Invoice", 2, y, { align: "center" });
+    y += 0.22;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    const addr = [store.name, store.address_line, [store.city, store.state, store.pincode].filter(Boolean).join(" ")].filter(Boolean);
+    addr.forEach((line) => { doc.text(String(line), 2, y, { align: "center" }); y += 0.16; });
+    if (biz.gstin) { doc.text(`GSTIN: ${biz.gstin}`, 2, y, { align: "center" }); y += 0.16; }
+    y += 0.05;
+    doc.setLineWidth(0.01);
+    doc.line(left, y, right, y);
+    y += 0.18;
+    doc.setFontSize(8);
+    doc.text(`Bill: ${sale.sale_id}`, left, y);
+    doc.text(new Date(sale.at).toLocaleString(), right, y, { align: "right" });
+    y += 0.16;
+    if (sale.customer && (sale.customer.name || sale.customer.phone)) {
+      doc.text(`Customer: ${sale.customer.name || "-"}  ${sale.customer.phone || ""}`.trim(), left, y);
+      y += 0.16;
+    }
+    doc.line(left, y, right, y);
+    y += 0.16;
+    doc.setFont("helvetica", "bold");
+    doc.text("Item", left, y);
+    doc.text("Qty", 2.2, y, { align: "right" });
+    doc.text("Rate", 2.9, y, { align: "right" });
+    doc.text("Amount", right, y, { align: "right" });
+    y += 0.14;
+    doc.line(left, y, right, y);
+    y += 0.15;
+    doc.setFont("helvetica", "normal");
+    sale.items.forEach((it) => {
+      const nm = String(it.name || it.sku);
+      doc.text(nm.length > 22 ? nm.slice(0, 22) : nm, left, y);
+      doc.text(String(it.qty), 2.2, y, { align: "right" });
+      doc.text(Number(it.unit_price).toFixed(2), 2.9, y, { align: "right" });
+      doc.text((it.qty * it.unit_price).toFixed(2), right, y, { align: "right" });
+      y += 0.16;
+    });
+    doc.line(left, y, right, y);
+    y += 0.18;
+    doc.text("Subtotal", 2.9, y, { align: "right" });
+    doc.text(sale.totals.subtotal.toFixed(2), right, y, { align: "right" });
+    y += 0.16;
+    doc.text("GST", 2.9, y, { align: "right" });
+    doc.text(sale.totals.tax.toFixed(2), right, y, { align: "right" });
+    y += 0.18;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("TOTAL", 2.9, y, { align: "right" });
+    doc.text(pdfMoney(sale.totals.total), right, y, { align: "right" });
+    y += 0.22;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text(`Paid via ${String(sale.mode || "cash").toUpperCase()}`, left, y);
+    y += 0.3;
+    doc.setFontSize(9);
+    doc.text("Thank you for shopping!", 2, y, { align: "center" });
+    openPdf(doc, `bill-${sale.sale_id}.pdf`);
+  }
+
+  function fieldVal(id) {
+    const el = document.getElementById(id);
+    return el && el.value ? el.value.trim() : "";
+  }
+
+  async function addStock(printAfter) {
+    const sku = fieldVal("stock-sku");
+    const name = fieldVal("stock-name");
+    const price = Number(fieldVal("stock-price") || 0);
+    const offer = Number(fieldVal("stock-offer") || 0) || price;
+    const tax = Number(fieldVal("stock-tax") || 0);
+    const qty = Number(fieldVal("stock-qty") || 0);
+    const reorder = Number(fieldVal("stock-reorder") || 0);
+    const location = fieldVal("stock-location");
+    const hsn = fieldVal("stock-hsn");
+    if (!sku || !name || !(qty > 0)) {
+      showToast("Code, name and quantity are required");
+      return;
+    }
+    try {
+      await apiFetch(API_ENDPOINTS.stockIn, {
+        method: "POST",
+        body: JSON.stringify({ sku, name, price, offer_price: offer, tax_percent: tax, qty, reorder_level: reorder, location, hsn, barcode: sku })
+      });
+      showToast(`Stock added: ${sku} (+${qty})`);
+      appState.loaded.inventory = false;
+      appState.loaded.dashboard = false;
+      if (printAfter) {
+        printProductLabel({ sku, name, price: offer, mrp: price, barcode: sku });
+      }
+      setActive("inventory");
+    } catch (err) {
+      showToast("Add stock failed: " + (err.message || "error"));
     }
   }
 
@@ -1206,66 +1785,83 @@
   const page = {
     dashboard() {
       const dashboardData = appState.dashboard || {};
-      const kpi = dashboardData.kpis || {
-        revenue_today: 341620,
-        orders_today: 284,
-        aov: 1203,
-        low_stock_skus: 19,
-        failed_sync_alerts: 2
-      };
-      const days = dashboardData.trend || [
-        ["Mon", 56], ["Tue", 62], ["Wed", 48], ["Thu", 71], ["Fri", 82], ["Sat", 91], ["Sun", 77]
-      ];
-      const alerts = dashboardData.alerts || [
-        "Low stock: Amul Butter 500g at Warehouse B",
-        "Cashier variance exceeds threshold at Counter 2",
-        "WhatsApp callback failed 2 times",
-        "GSTR export scheduled at 23:30"
+      const k = dashboardData.kpis || {};
+      const days = Array.isArray(dashboardData.trend) ? dashboardData.trend : [];
+      const alerts = Array.isArray(dashboardData.alerts) ? dashboardData.alerts : [];
+      const maxTrend = days.reduce((m, d) => Math.max(m, Number(d[1]) || 0), 0) || 1;
+      const cards = [
+        ["Total Sales", money(Number(k.total_sales) || 0), "Gross sales"],
+        ["Net Sales", money(Number(k.net_sales) || 0), "After discounts / returns"],
+        ["Gross Profit", money(Number(k.gross_profit) || 0), "Revenue − product cost"],
+        ["Net Profit", money(Number(k.net_profit) || 0), "Profit after expenses"],
+        ["Profit Margin", `${Number(k.profit_margin) || 0}%`, "Business profitability"],
+        ["Orders / Bills", `${Number(k.orders) || 0}`, "Number of transactions"],
+        ["Items Sold", `${Number(k.items_sold) || 0}`, "Total units sold"],
+        ["Average Order Value", money(Number(k.aov) || 0), "Average bill amount"],
+        ["Discounts Given", money(Number(k.discounts) || 0), "Total discounts"],
+        ["Returns / Refunds", money(Number(k.returns_refunds) || 0), "Returned amount"],
+        ["Tax Collected", money(Number(k.tax_collected) || 0), "GST / tax collected"],
+        ["Outstanding Amount", money(Number(k.outstanding) || 0), "Customer dues"]
       ];
       return `
+        <div class="section" style="display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:6px;">
+          <span class="muted" style="font-size:12px;">Today's performance</span>
+          <span class="muted" style="font-size:12px;">${new Date().toLocaleDateString()}</span>
+        </div>
         <div class="section grid kpi-grid">
-          <article class="card reveal"><div class="kpi-label">Revenue today</div><div class="kpi-value mono">${money(kpi.revenue_today)}</div><div class="kpi-trend good mono">+12.4% d/d</div></article>
-          <article class="card reveal"><div class="kpi-label">Orders</div><div class="kpi-value mono">${kpi.orders_today}</div><div class="kpi-trend good mono">+31 online</div></article>
-          <article class="card reveal"><div class="kpi-label">Average order value</div><div class="kpi-value mono">${money(kpi.aov)}</div><div class="kpi-trend warn mono">-2.1% w/w</div></article>
-          <article class="card reveal"><div class="kpi-label">Low stock SKUs</div><div class="kpi-value mono">${kpi.low_stock_skus}</div><div class="kpi-trend warn mono">7 critical</div></article>
-          <article class="card reveal"><div class="kpi-label">Failed sync alerts</div><div class="kpi-value mono">${kpi.failed_sync_alerts}</div><div class="kpi-trend danger mono">Webhook retries pending</div></article>
+          ${cards.map(([label, value, sub]) => `<article class="card reveal"><div class="kpi-label">${label}</div><div class="kpi-value mono">${value}</div><div class="kpi-trend">${sub}</div></article>`).join("")}
         </div>
 
         <div class="section grid two-col">
           <article class="card reveal">
             <h3 class="panel-title">7-Day Sales Trend</h3>
             <div class="bars">
-              ${days.map((d) => `<div class="bar-row"><div class="mono">${d[0]}</div><div class="bar-track"><div class="bar-fill" style="width:${d[1]}%"></div></div><div class="mono">${d[1]}k</div></div>`).join("")}
+              ${days.length ? days.map((d) => `<div class="bar-row"><div class="mono">${d[0]}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.round((Number(d[1]) || 0) / maxTrend * 100)}%"></div></div><div class="mono">${d[1]}k</div></div>`).join("") : `<div class="muted">No sales in the last 7 days.</div>`}
             </div>
-            <div style="margin-top: 10px; font-size: 11px; color: var(--color-muted-foreground);">p95 POS item add latency: 128ms | API read p95: 276ms</div>
           </article>
 
           <article class="card reveal">
             <h3 class="panel-title">Alert Lane</h3>
-            ${alerts.map((message, idx) => `<div class="alert-row"><span>${message}</span><span class="chip ${idx === 1 ? "danger" : idx === 0 ? "warn" : idx === 3 ? "good" : ""}">${idx === 0 ? "Reorder" : idx === 1 ? "Review" : idx === 2 ? "Retry queued" : "Ready"}</span></div>`).join("")}
+            ${alerts.length ? alerts.map((message) => `<div class="alert-row"><span>${message}</span><span class="chip warn">Reorder</span></div>`).join("") : `<div class="muted">No active alerts.</div>`}
           </article>
         </div>
       `;
     },
 
     pos() {
-      const items = POS_CART;
-      const subtotal = items.reduce((a, i) => a + (i[2] * i[3]), 0);
-      const tax = Math.round(subtotal * 0.05);
-      const discount = 35;
-      const total = subtotal + tax - discount;
+      const t = posTotals();
+      const cust = POS_STATE.customer;
+      const mode = POS_STATE.paymentMode;
+      const statusMsg = cust.searched
+        ? (cust.existing
+            ? `<span class="chip good">Existing customer</span>`
+            : `<span class="chip warn">New customer — enter details</span>`)
+        : `<span class="muted" style="font-size:12px;">Enter mobile and press Search</span>`;
+      const catalogOptions = (POS_STATE.catalog || [])
+        .map((p) => `<option value="${p.sku}">${p.name} — ${money(p.price || 0)}</option>`)
+        .join("");
       return `
         <div class="section card reveal">
+          <h3 class="panel-title">Customer <span style="color:#dc2626;">*</span></h3>
+          <div class="grid four-col" style="align-items:end;">
+            <label class="field" style="grid-column: span 2;"><span aria-hidden="true">Mobile Number *</span><input id="pos-cust-phone" type="tel" inputmode="numeric" required placeholder="10-digit mobile" value="${cust.phone}" /></label>
+            <button class="btn" type="button" data-action="pos-cust-search">Search</button>
+            <div>${statusMsg}</div>
+          </div>
+          <div class="grid four-col" style="margin-top:10px;">
+            <label class="field" style="grid-column: span 2;"><span aria-hidden="true">Customer Name *</span><input id="pos-cust-name" type="text" required placeholder="Name" value="${cust.name}" /></label>
+            <label class="field" style="grid-column: span 2;"><span aria-hidden="true">Place</span><input id="pos-cust-place" type="text" placeholder="City / locality" value="${cust.place}" /></label>
+          </div>
+        </div>
+
+        <div class="section card reveal">
+          <h3 class="panel-title">Add Items</h3>
           <div class="grid four-col">
-            <label class="field" style="grid-column: span 2;"><span aria-hidden="true">Scan</span><input id="barcode-input" type="text" inputmode="numeric" placeholder="Barcode / product search" /></label>
+            <label class="field" style="grid-column: span 2;"><span aria-hidden="true">Scan / SKU</span><input id="pos-scan" type="text" list="pos-catalog" autocomplete="off" placeholder="Scan barcode or type code, press Enter" /></label>
+            <button class="btn primary" type="button" data-action="pos-add-item">Add Item</button>
             <button class="btn" type="button" data-action="scan-camera">Scan by Camera</button>
-            <button class="btn" type="button">Hold Cart (F4)</button>
-            <button class="btn" type="button">Park Bill (F6)</button>
           </div>
-          <input id="camera-scan-input" class="sr-only" type="file" accept="image/*" capture="environment" />
-          <div style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px;">
-            <span class="chip">Groceries</span><span class="chip">Dairy</span><span class="chip">Home Care</span><span class="chip">Snacks</span>
-          </div>
+          <datalist id="pos-catalog">${catalogOptions}</datalist>
         </div>
 
         <div class="section grid two-col">
@@ -1273,32 +1869,34 @@
             <h3 class="panel-title">Current Cart</h3>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Item</th><th>SKU</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
+                <thead><tr><th>Item</th><th>SKU</th><th>Qty</th><th>Rate</th><th>Amount</th><th></th></tr></thead>
                 <tbody>
-                  ${items.map((i) => `<tr><td>${i[0]}</td><td class="mono">${i[1]}</td><td class="mono">${i[2]}</td><td class="mono">${money(i[3])}</td><td class="mono">${money(i[2] * i[3])}</td></tr>`).join("")}
+                  ${POS_STATE.cart.map((l) => `<tr><td>${l.name}</td><td class="mono">${l.sku}</td><td class="mono" style="white-space:nowrap;"><button class="btn" type="button" data-action="pos-qty" data-sku="${l.sku}" data-delta="-1">-</button> ${l.qty} <button class="btn" type="button" data-action="pos-qty" data-sku="${l.sku}" data-delta="1">+</button></td><td class="mono">${money(l.unit_price)}</td><td class="mono">${money(l.qty * l.unit_price)}</td><td><button class="btn" type="button" data-action="pos-remove" data-sku="${l.sku}">✕</button></td></tr>`).join("") || `<tr><td colspan="6">Cart is empty. Scan or add an item.</td></tr>`}
                 </tbody>
               </table>
             </div>
           </article>
 
           <article class="card reveal">
-            <h3 class="panel-title">Payment Split</h3>
+            <h3 class="panel-title">Billing</h3>
             <div class="mono" style="font-size: 12px; display: grid; gap: 6px;">
-              <div style="display:flex; justify-content:space-between;"><span>Subtotal</span><span>${money(subtotal)}</span></div>
-              <div style="display:flex; justify-content:space-between;"><span>GST (5%)</span><span>${money(tax)}</span></div>
-              <div style="display:flex; justify-content:space-between;"><span>Coupon</span><span class="good">-${money(discount)}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>Subtotal</span><span>${money(t.subtotal)}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>GST</span><span>${money(t.tax)}</span></div>
             </div>
             <div style="margin: 10px 0; border-top: 1px dashed var(--color-border); padding-top: 10px; display:flex; justify-content:space-between;">
-              <strong>Total Payable</strong><strong class="mono">${money(total)}</strong>
+              <strong>Total Payable</strong><strong class="mono">${money(t.total)}</strong>
             </div>
-            <div style="display:flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
-              <span class="chip">Cash ${money(300)}</span><span class="chip">UPI ${money(458)}</span><span class="chip">Card ${money(total - 758)}</span>
+            <div style="margin-bottom: 10px; display:flex; gap: 8px;">
+              <button class="btn ${mode === "cash" ? "primary" : ""}" type="button" data-action="pos-pay-mode" data-mode="cash">Cash</button>
+              <button class="btn ${mode === "upi" ? "primary" : ""}" type="button" data-action="pos-pay-mode" data-mode="upi">UPI</button>
             </div>
-            <div class="grid four-col">
-              <button class="btn" type="button">Attach Customer</button>
-              <button class="btn" type="button" data-action="print-receipt">Print Receipt</button>
-              <button class="btn" type="button" data-action="send-receipt">Send WhatsApp Receipt</button>
-              <button class="btn primary" type="button" data-action="submit-sale">Receive Payment</button>
+            ${mode === "upi" ? `<div style="text-align:center; margin-bottom:10px;"><div id="upi-qr" style="display:inline-block; padding:6px; background:#fff;"></div><div class="muted" style="font-size:11px; margin-top:4px;">Scan to pay ${money(t.total)} (placeholder QR)</div></div>` : ""}
+            <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin-bottom:10px;">
+              <input id="pos-mark-paid-check" type="checkbox" ${POS_STATE.markPaid ? "checked" : ""} /> Mark as paid
+            </label>
+            <div class="grid two-col">
+              <button class="btn primary" type="button" data-action="pos-confirm-order">Confirm Order</button>
+              <button class="btn" type="button" data-action="pos-print-bill">Print Bill (PDF)</button>
             </div>
           </article>
         </div>
@@ -1306,23 +1904,14 @@
     },
 
     orders() {
-      const fallbackRows = [
-        ["ORD-10018", "Online", "Priya S", money(1450), "Created"],
-        ["ORD-10017", "In-Store", "Walk-in", money(962), "Paid"],
-        ["ORD-10016", "Online", "Rahul K", money(780), "Packed"],
-        ["ORD-10015", "Online", "Meena R", money(1340), "Shipped"],
-        ["ORD-10014", "Online", "Suresh B", money(560), "Delivered"],
-        ["ORD-10013", "In-Store", "Walk-in", money(420), "Returned"]
-      ];
-      const rows = Array.isArray(appState.orders && appState.orders.items)
-        ? appState.orders.items.map((it) => [
-          it.order_no,
-          it.channel,
-          it.customer_name,
-          money(it.total_amount || 0),
-          it.status
-        ])
-        : fallbackRows;
+      const items = Array.isArray(appState.orders && appState.orders.items) ? appState.orders.items : [];
+      const rows = items.map((it) => [
+        it.order_no,
+        it.channel,
+        it.customer_name,
+        money(it.total_amount || 0),
+        it.status
+      ]);
       const tone = {
         Created: "",
         Paid: "good",
@@ -1331,10 +1920,18 @@
         Delivered: "good",
         Returned: "danger"
       };
+      const statusCounts = items.reduce((acc, it) => {
+        const key = it.status || "Unknown";
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+      const statusChips = Object.keys(statusCounts).length
+        ? Object.entries(statusCounts).map(([name, count]) => `<span class="chip">${name} ${count}</span>`).join("")
+        : `<span class="chip">No orders</span>`;
       return `
         <div class="section card reveal">
           <div style="display:flex; gap:6px; flex-wrap:wrap;">
-            <span class="chip">Created 23</span><span class="chip">Paid 118</span><span class="chip">Packed 36</span><span class="chip">Shipped 42</span><span class="chip">Delivered 302</span><span class="chip">Returned 9</span>
+            ${statusChips}
           </div>
         </div>
         <article class="card reveal">
@@ -1343,7 +1940,7 @@
             <table>
               <thead><tr><th>Order</th><th>Channel</th><th>Customer</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
               <tbody>
-                ${rows.map((r) => `<tr><td class="mono">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td class="mono">${r[3]}</td><td><span class="chip ${tone[r[4]]}">${r[4]}</span></td><td style="display:flex; gap:6px;"><button class="btn" type="button" data-action="reprint-order" data-order="${r[0]}">Reprint</button><button class="btn" type="button" data-action="void-order" data-order="${r[0]}">Void</button></td></tr>`).join("")}
+                ${rows.map((r) => `<tr><td class="mono">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td class="mono">${r[3]}</td><td><span class="chip ${tone[r[4]] || ""}">${r[4]}</span></td><td style="display:flex; gap:6px;"><button class="btn" type="button" data-action="reprint-order" data-order="${r[0]}">Reprint</button><button class="btn" type="button" data-action="void-order" data-order="${r[0]}">Void</button></td></tr>`).join("") || `<tr><td colspan="6">No orders.</td></tr>`}
               </tbody>
             </table>
           </div>
@@ -1356,27 +1953,41 @@
       const ledgerData = appState.inventoryLedger || { entries: [] };
       return `
         <div class="section card reveal">
-          <h3 style="margin:0 0 10px;">Live Stock Snapshot</h3>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>SKU</th><th>Name</th><th>Available</th><th>Reorder</th><th>Location</th><th>Status</th></tr></thead>
-              <tbody>
-                ${(inventoryData.products || []).map((p) => {
-                  const cls = Number(p.qty) <= Number(p.reorder_level) ? "warn" : "good";
-                  return `<tr><td class="mono">${p.sku}</td><td>${p.name}</td><td>${p.qty}</td><td>${p.reorder_level}</td><td>${p.location || "Store"}</td><td><span class="chip ${cls}">${Number(p.qty) <= Number(p.reorder_level) ? "Low" : "Healthy"}</span></td></tr>`;
-                }).join("") || `<tr><td colspan="6">No stock data.</td></tr>`}
-              </tbody>
-            </table>
+          <h3 style="margin:0 0 10px;">Add Stock</h3>
+          <div class="grid four-col">
+            <label class="field"><span aria-hidden="true">Product Code / SKU</span><input id="stock-sku" type="text" placeholder="e.g. TS-1KG" /></label>
+            <label class="field"><span aria-hidden="true">Product Name</span><input id="stock-name" type="text" placeholder="e.g. Tata Salt 1kg" /></label>
+            <label class="field"><span aria-hidden="true">Price / MRP (₹)</span><input id="stock-price" type="number" min="0" step="0.01" placeholder="0.00" /></label>
+            <label class="field"><span aria-hidden="true">Offer Price (₹)</span><input id="stock-offer" type="number" min="0" step="0.01" placeholder="0.00" /></label>
+            <label class="field"><span aria-hidden="true">GST %</span><input id="stock-tax" type="number" min="0" max="28" step="0.01" placeholder="0" /></label>
+            <label class="field"><span aria-hidden="true">Quantity</span><input id="stock-qty" type="number" min="1" step="1" placeholder="0" /></label>
+            <label class="field"><span aria-hidden="true">Reorder Level</span><input id="stock-reorder" type="number" min="0" step="1" placeholder="0" /></label>
+            <label class="field"><span aria-hidden="true">Location</span><input id="stock-location" type="text" placeholder="Aisle / Rack" /></label>
+            <label class="field"><span aria-hidden="true">HSN</span><input id="stock-hsn" type="text" placeholder="HSN code" /></label>
+          </div>
+          <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn" type="button" data-action="add-stock">Add Stock</button>
+            <button class="btn primary" type="button" data-action="add-stock-print">Add Stock & Print Label</button>
           </div>
         </div>
 
         <div class="section card reveal">
-          <h3 style="margin:0 0 10px;">Barcode Labels</h3>
-          <div class="grid four-col">
-            <label class="field"><span aria-hidden="true">Start SKU</span><input id="label-start-sku" type="text" value="TS-1KG" /></label>
-            <label class="field"><span aria-hidden="true">End SKU</span><input id="label-end-sku" type="text" value="AMB-500" /></label>
-            <label class="field"><span aria-hidden="true">Copies</span><input id="label-copies" type="number" min="1" max="20" value="2" /></label>
-            <button class="btn primary" type="button" data-action="print-labels">Generate & Print</button>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+            <h3 style="margin:0;">Live Stock Snapshot</h3>
+            <button class="btn primary" type="button" data-action="print-selected-labels">Print Selected Labels</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th><input type="checkbox" id="label-select-all" /></th><th>SKU</th><th>Name</th><th>MRP</th><th>Offer</th><th>Available</th><th>Reorder</th><th>Status</th><th>Label</th></tr></thead>
+              <tbody>
+                ${(inventoryData.products || []).map((p) => {
+                  const cls = Number(p.qty) <= Number(p.reorder_level) ? "warn" : "good";
+                  const enc = encodeURIComponent(JSON.stringify({ sku: p.sku, name: p.name, price: p.price || 0, mrp: p.mrp || 0 }));
+                  const mrpCell = (p.mrp && p.mrp > (p.price || 0)) ? `<span style="text-decoration:line-through; color:var(--color-muted-foreground);">${money(p.mrp)}</span>` : money(p.mrp || p.price || 0);
+                  return `<tr><td><input type="checkbox" class="label-select" data-product="${enc}" /></td><td class="mono">${p.sku}</td><td>${p.name}</td><td class="mono">${mrpCell}</td><td class="mono">${money(p.price || 0)}</td><td>${p.qty}</td><td>${p.reorder_level}</td><td><span class="chip ${cls}">${Number(p.qty) <= Number(p.reorder_level) ? "Low" : "Healthy"}</span></td><td><button class="btn" type="button" data-action="print-label" data-product="${enc}">Print</button></td></tr>`;
+                }).join("") || `<tr><td colspan="9">No stock data.</td></tr>`}
+              </tbody>
+            </table>
           </div>
         </div>
 
@@ -1396,53 +2007,71 @@
 
     customers() {
       const cData = appState.customers || { items: [] };
-      const customers = cData.items || [];
-      const segmentCount = customers.reduce((acc, c) => {
-        const key = c.segment || "Unclassified";
-        acc[key] = (acc[key] || 0) + 1;
-        return acc;
-      }, {});
-      const segmentChips = Object.keys(segmentCount).length
-        ? Object.entries(segmentCount).map(([name, count]) => `<span class="chip">${name} ${count}</span>`).join("")
-        : `<span class="chip">No customer records</span>`;
-
-      return `
-        <div class="tabbar">
-          <button class="tab-btn active" data-subtab="segments" type="button">Segments</button>
-          <button class="tab-btn" data-subtab="timeline" type="button">Customer Timeline</button>
-        </div>
-
-        <div id="sub-segments">
-          <div class="section card reveal">
-            <h3 class="panel-title">RFM Segmentation</h3>
-            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-              ${segmentChips}
-            </div>
-            <button class="btn primary" type="button" data-goto="promotions">Create Promotion Campaign</button>
-          </div>
-
+      const all = cData.items || [];
+      const filter = (CUST_STATE.filter || "").trim().toLowerCase();
+      const customers = filter
+        ? all.filter((c) => (c.phone || "").toLowerCase().includes(filter) || (c.name || "").toLowerCase().includes(filter))
+        : all;
+      const detail = CUST_STATE.detail;
+      const detailHtml = detail
+        ? `
           <article class="card reveal">
-            <h3 class="panel-title">Customer Records</h3>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <h3 class="panel-title" style="margin:0;">${detail.customer.name || "Customer"}</h3>
+              <button class="btn" type="button" data-action="cust-clear-detail">Close</button>
+            </div>
+            <div class="grid two-col" style="margin:10px 0;">
+              <div class="alert-row"><span>Mobile</span><span class="mono">${detail.customer.phone || "-"}</span></div>
+              <div class="alert-row"><span>Place</span><span>${detail.customer.place || "-"}</span></div>
+              <div class="alert-row"><span>Customer ID</span><span class="mono">${detail.customer.code || "-"}</span></div>
+              <div class="alert-row"><span>Since</span><span>${detail.customer.since ? new Date(detail.customer.since).toLocaleDateString() : "-"}</span></div>
+              <div class="alert-row"><span>Total orders</span><span class="mono">${detail.stats.orders}</span></div>
+              <div class="alert-row"><span>Total spent</span><span class="mono">${money(detail.stats.total_spent)}</span></div>
+            </div>
+            <h4 style="margin:12px 0 6px;">Order History</h4>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>ID</th><th>Name</th><th>Segment</th></tr></thead>
+                <thead><tr><th>Order</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead>
                 <tbody>
-                  ${customers.map((c) => `<tr><td class="mono">${c.id}</td><td>${c.name || "-"}</td><td>${c.segment || "-"}</td></tr>`).join("") || `<tr><td colspan="3">No customers.</td></tr>`}
+                  ${detail.orders.map((o) => `<tr><td class="mono">${o.order_no}</td><td>${new Date(o.created_at).toLocaleDateString()}</td><td class="mono">${money(o.total_amount)}</td><td><span class="chip ${o.status === "Paid" ? "good" : ""}">${o.status}</span></td></tr>`).join("") || `<tr><td colspan="4">No orders yet.</td></tr>`}
                 </tbody>
               </table>
             </div>
-          </article>
+          </article>`
+        : "";
+
+      return `
+        <div class="section card reveal">
+          <h3 class="panel-title">Add Customer</h3>
+          <div class="grid four-col">
+            <label class="field"><span aria-hidden="true">Name *</span><input id="cust-add-name" type="text" placeholder="Customer name" /></label>
+            <label class="field"><span aria-hidden="true">Mobile *</span><input id="cust-add-phone" type="tel" inputmode="numeric" placeholder="10-digit mobile" /></label>
+            <label class="field"><span aria-hidden="true">Place</span><input id="cust-add-place" type="text" placeholder="City / locality" /></label>
+            <button class="btn primary" type="button" data-action="cust-save">Save Customer</button>
+          </div>
         </div>
 
-        <div id="sub-timeline" style="display:none;">
-          <article class="card reveal">
-            <h3 class="panel-title">Customer 360 Timeline (Priya S)</h3>
-            <div class="alert-row"><span>Order ORD-10018 placed via storefront</span><span class="mono">09:42</span></div>
-            <div class="alert-row"><span>WhatsApp receipt delivered</span><span class="mono">09:43</span></div>
-            <div class="alert-row"><span>Support note: preferred evening delivery</span><span class="mono">09:49</span></div>
-            <div class="alert-row"><span>Outstanding balance cleared by UPI</span><span class="mono">10:02</span></div>
-          </article>
+        <div class="section card reveal">
+          <div class="grid four-col" style="align-items:end;">
+            <label class="field" style="grid-column: span 2;"><span aria-hidden="true">Search by mobile or name</span><input id="cust-search" type="text" placeholder="Mobile number or name" value="${CUST_STATE.filter}" /></label>
+            <button class="btn" type="button" data-action="cust-search">Search</button>
+            <button class="btn" type="button" data-action="cust-clear-search">Clear</button>
+          </div>
         </div>
+
+        ${detailHtml}
+
+        <article class="card reveal">
+          <h3 class="panel-title">Customers (${customers.length})</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Mobile</th><th>Place</th><th></th></tr></thead>
+              <tbody>
+                ${customers.map((c) => `<tr><td>${c.name || "-"}</td><td class="mono">${c.phone || "-"}</td><td>${c.place || "-"}</td><td><button class="btn" type="button" data-action="cust-view" data-id="${c.id}">View</button></td></tr>`).join("") || `<tr><td colspan="4">No customers found.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </article>
       `;
     },
 
@@ -1462,19 +2091,19 @@
             <div>
               <h3 class="panel-title">Audience + Offer Builder</h3>
               <div style="display:grid; gap:8px;">
-                <label class="field"><span>Segment</span><input value="Dormant 60d + High Value" /></label>
-                <label class="field"><span>Offer</span><input value="15% off on grocery basket above Rs 999" /></label>
-                <label class="field"><span>Channel</span><input value="WhatsApp Template: FESTIVE_15" /></label>
-                <label class="field"><span>Schedule</span><input value="2026-08-30 18:00" /></label>
+                <label class="field"><span>Segment</span><input placeholder="e.g. Dormant 60d + High Value" /></label>
+                <label class="field"><span>Offer</span><input placeholder="e.g. 15% off grocery basket above Rs 999" /></label>
+                <label class="field"><span>Channel</span><input placeholder="e.g. WhatsApp Template: FESTIVE_15" /></label>
+                <label class="field"><span>Schedule</span><input placeholder="YYYY-MM-DD HH:mm" /></label>
               </div>
             </div>
             <div>
               <h3 class="panel-title">Projected Reach & Cost</h3>
               <div class="card" style="padding:10px; background:#F8FAFC;">
-                <div class="alert-row"><span>Eligible customers</span><span class="mono">126</span></div>
-                <div class="alert-row"><span>Estimated delivery</span><span class="mono">119 (94%)</span></div>
-                <div class="alert-row"><span>Campaign spend</span><span class="mono">${money(378)}</span></div>
-                <div class="alert-row"><span>Projected converted revenue</span><span class="mono good">${money(48200)}</span></div>
+                <div class="alert-row"><span>Eligible customers</span><span class="mono">0</span></div>
+                <div class="alert-row"><span>Estimated delivery</span><span class="mono">0</span></div>
+                <div class="alert-row"><span>Campaign spend</span><span class="mono">${money(0)}</span></div>
+                <div class="alert-row"><span>Projected converted revenue</span><span class="mono good">${money(0)}</span></div>
               </div>
               <div style="margin-top: 10px; display:flex; gap:8px;">
                 <button class="btn" type="button">Save Draft</button>
@@ -1503,12 +2132,6 @@
       const top = appState.topProducts || { items: [] };
       const tax = appState.reports || {};
       return `
-        <div class="section grid three-col">
-          <article class="card reveal"><div class="kpi-label">Gross margin today</div><div class="kpi-value mono">22.8%</div><div class="kpi-trend good">Above target by 1.2%</div></article>
-          <article class="card reveal"><div class="kpi-label">Return rate</div><div class="kpi-value mono">1.6%</div><div class="kpi-trend">Within normal band</div></article>
-          <article class="card reveal"><div class="kpi-label">Cashier variance</div><div class="kpi-value mono">${money(820)}</div><div class="kpi-trend warn">Counter 2 mismatch</div></article>
-        </div>
-
         <div class="section grid two-col">
           <article class="card reveal">
             <h3 class="panel-title">Tax Summary (GST)</h3>
@@ -1525,14 +2148,7 @@
 
           <article class="card reveal">
             <h3 class="panel-title">Daily Close</h3>
-            <div class="mono" style="font-size:12px; display:grid; gap:6px;">
-              <div style="display:flex; justify-content:space-between;"><span>Opening Cash</span><span>${money(5000)}</span></div>
-              <div style="display:flex; justify-content:space-between;"><span>Cash Sales</span><span>${money(126400)}</span></div>
-              <div style="display:flex; justify-content:space-between;"><span>UPI/Card/Wallet</span><span>${money(215220)}</span></div>
-              <div style="display:flex; justify-content:space-between;"><span>Expected Drawer</span><span>${money(131400)}</span></div>
-              <div style="display:flex; justify-content:space-between;"><span>Counted Drawer</span><span>${money(130580)}</span></div>
-            </div>
-            <div style="margin-top:10px;"><span class="chip danger">Variance ${money(820)}</span></div>
+            <div class="muted">No cash session recorded yet.</div>
           </article>
         </div>
 
@@ -1569,23 +2185,23 @@
         <div class="section grid three-col">
           <article class="card reveal">
             <h3 class="panel-title">WhatsApp Cloud API</h3>
-            <div class="alert-row"><span>Status</span><span class="chip ${iData.whatsapp_status === "disconnected" ? "danger" : "good"}">${iData.whatsapp_status || "Connected"}</span></div>
-            <div class="alert-row"><span>Templates approved</span><span class="mono">${iData.whatsapp_templates || 12}</span></div>
-            <div class="alert-row"><span>Delivery callback success</span><span class="mono">${iData.whatsapp_delivery_success || "98.8%"}</span></div>
+            <div class="alert-row"><span>Status</span><span class="chip ${iData.whatsapp_status === "Connected" ? "good" : "danger"}">${iData.whatsapp_status || "Not connected"}</span></div>
+            <div class="alert-row"><span>Templates approved</span><span class="mono">${iData.whatsapp_templates ?? 0}</span></div>
+            <div class="alert-row"><span>Delivery callback success</span><span class="mono">${iData.whatsapp_delivery_success || "-"}</span></div>
             <button class="btn" type="button">Template Manager</button>
           </article>
           <article class="card reveal">
             <h3 class="panel-title">Google Sheets Sync</h3>
-            <div class="alert-row"><span>Linked workbook</span><span class="mono">${iData.sheet_name || "Retail-ops-2026"}</span></div>
-            <div class="alert-row"><span>Schedule</span><span class="mono">${iData.sheet_schedule || "Every 30 min"}</span></div>
-            <div class="alert-row"><span>Last run</span><span class="mono">${iData.sheet_last_run || "4 min ago"}</span></div>
+            <div class="alert-row"><span>Linked workbook</span><span class="mono">${iData.sheet_name || "-"}</span></div>
+            <div class="alert-row"><span>Schedule</span><span class="mono">${iData.sheet_schedule || "-"}</span></div>
+            <div class="alert-row"><span>Last run</span><span class="mono">${iData.sheet_last_run || "-"}</span></div>
             <button class="btn primary" type="button">Run Sync Now</button>
           </article>
           <article class="card reveal">
             <h3 class="panel-title">Webhook Reliability</h3>
-            <div class="alert-row"><span>Retries in queue</span><span class="mono">${iData.webhook_retries || 7}</span></div>
-            <div class="alert-row"><span>Idempotency conflicts</span><span class="mono">${iData.idempotency_conflicts || 0}</span></div>
-            <div class="alert-row"><span>Failed signatures</span><span class="mono">${iData.failed_signatures || 2}</span></div>
+            <div class="alert-row"><span>Retries in queue</span><span class="mono">${iData.webhook_retries ?? 0}</span></div>
+            <div class="alert-row"><span>Idempotency conflicts</span><span class="mono">${iData.idempotency_conflicts ?? 0}</span></div>
+            <div class="alert-row"><span>Failed signatures</span><span class="mono">${iData.failed_signatures ?? 0}</span></div>
             <button class="btn" type="button">Open Logs</button>
           </article>
         </div>
@@ -1620,26 +2236,35 @@
     },
 
     settings() {
-      const setup = appState.settings || {};
+      const s = appState.settings || {};
       return `
         <div class="section grid two-col">
           <article class="card reveal">
             <h3 class="panel-title">Business + GST Profile</h3>
-            <div class="alert-row"><span>Legal Name</span><span class="mono">${setup.business_name || "-"}</span></div>
-            <div class="alert-row"><span>GSTIN</span><span class="mono">${setup.gstin || "-"}</span></div>
-            <div class="alert-row"><span>PAN</span><span class="mono">${setup.pan || "-"}</span></div>
-            <div class="alert-row"><span>Invoice Prefix</span><span class="mono">${setup.invoice_prefix || "-"}</span></div>
-            <button class="btn" type="button">Edit Business Details</button>
+            <div style="display:grid; gap:8px;">
+              <label class="field"><span aria-hidden="true">Legal / Business Name</span><input id="set-business-name" type="text" placeholder="Business name" value="${(s.business_name || "").replace(/"/g, "&quot;")}" /></label>
+              <label class="field"><span aria-hidden="true">GSTIN</span><input id="set-gstin" type="text" placeholder="GSTIN" value="${(s.gstin || "").replace(/"/g, "&quot;")}" /></label>
+              <label class="field"><span aria-hidden="true">PAN</span><input id="set-pan" type="text" placeholder="PAN" value="${(s.pan || "").replace(/"/g, "&quot;")}" /></label>
+              <label class="field"><span aria-hidden="true">Invoice Prefix</span><input id="set-invoice-prefix" type="text" placeholder="e.g. INV/" value="${(s.invoice_prefix || "").replace(/"/g, "&quot;")}" /></label>
+            </div>
           </article>
 
           <article class="card reveal">
-            <h3 class="panel-title">Tax Engine Rules</h3>
-            <div class="alert-row"><span>Place of supply logic</span><span class="chip">IGST vs CGST/SGST</span></div>
-            <div class="alert-row"><span>HSN mapped SKUs</span><span class="mono">3,982 / 4,128</span></div>
-            <div class="alert-row"><span>Inclusive pricing SKUs</span><span class="mono">514</span></div>
-            <div class="alert-row"><span>Last GST export</span><span class="mono">2026-08-28 23:31</span></div>
-            <button class="btn primary" type="button">Run Compliance Audit</button>
+            <h3 class="panel-title">Store Details (on bills)</h3>
+            <div style="display:grid; gap:8px;">
+              <label class="field"><span aria-hidden="true">Store Name</span><input id="set-store-name" type="text" placeholder="Store name" value="${(s.store_name || "").replace(/"/g, "&quot;")}" /></label>
+              <label class="field"><span aria-hidden="true">Address</span><input id="set-store-address" type="text" placeholder="Address line" value="${(s.store_address || "").replace(/"/g, "&quot;")}" /></label>
+              <div class="grid three-col">
+                <label class="field"><span aria-hidden="true">City</span><input id="set-store-city" type="text" placeholder="City" value="${(s.store_city || "").replace(/"/g, "&quot;")}" /></label>
+                <label class="field"><span aria-hidden="true">State</span><input id="set-store-state" type="text" placeholder="State" value="${(s.store_state || "").replace(/"/g, "&quot;")}" /></label>
+                <label class="field"><span aria-hidden="true">Pincode</span><input id="set-store-pincode" type="text" inputmode="numeric" placeholder="Pincode" value="${(s.store_pincode || "").replace(/"/g, "&quot;")}" /></label>
+              </div>
+            </div>
           </article>
+        </div>
+
+        <div class="section" style="display:flex; justify-content:flex-end;">
+          <button class="btn primary" type="button" data-action="save-settings">Save Business Details</button>
         </div>
 
         <article class="card reveal">
@@ -1696,40 +2321,52 @@
 
   function wireView(tabId) {
     if (tabId === "pos") {
-      const submitBtn = document.querySelector("[data-action='submit-sale']");
-      if (submitBtn) {
-        submitBtn.addEventListener("click", () => submitPosSale());
+      if (!POS_STATE.catalog.length) {
+        loadPosCatalog().then(() => {
+          if (appState.activeTab === "pos") {
+            const dl = document.getElementById("pos-catalog");
+            if (dl) {
+              dl.innerHTML = POS_STATE.catalog.map((p) => `<option value="${p.sku}">${p.name} — ${money(p.price || 0)}</option>`).join("");
+            }
+          }
+        });
+      }
+      const scan = document.getElementById("pos-scan");
+      if (scan) {
+        scan.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            posAddItem();
+          }
+        });
+        scan.focus();
+      }
+
+      if (POS_STATE.paymentMode === "upi") {
+        const el = document.getElementById("upi-qr");
+        if (el && window.QRCode) {
+          el.innerHTML = "";
+          const t = posTotals();
+          const upi = `upi://pay?pa=merchant@upi&pn=${encodeURIComponent("OneCounter")}&am=${t.total}&cu=INR`;
+          new window.QRCode(el, { text: upi, width: 140, height: 140 });
+        }
       }
 
       const cameraBtn = document.querySelector("[data-action='scan-camera']");
-      const cameraInput = document.getElementById("camera-scan-input");
-      if (cameraBtn && cameraInput) {
-        cameraBtn.addEventListener("click", () => cameraInput.click());
-        cameraInput.addEventListener("change", () => {
-          const barcodeInput = document.getElementById("barcode-input");
-          if (barcodeInput) {
-            barcodeInput.value = "CAM-SCAN-PENDING";
-          }
-          showToast("Camera scan captured. OCR parser can be linked here.");
-        });
+      if (cameraBtn) {
+        cameraBtn.addEventListener("click", () => openScanner());
       }
     }
 
     if (tabId === "customers") {
-      const tabs = document.querySelectorAll("[data-subtab]");
-      tabs.forEach((tab) => {
-        tab.addEventListener("click", () => {
-          tabs.forEach((btn) => btn.classList.remove("active"));
-          tab.classList.add("active");
-          const isSegments = tab.dataset.subtab === "segments";
-          document.getElementById("sub-segments").style.display = isSegments ? "block" : "none";
-          document.getElementById("sub-timeline").style.display = isSegments ? "none" : "block";
+      const search = document.getElementById("cust-search");
+      if (search) {
+        search.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            searchCustomers();
+          }
         });
-      });
-
-      const goPromotions = document.querySelector("[data-goto='promotions']");
-      if (goPromotions) {
-        goPromotions.addEventListener("click", () => setActive("promotions"));
       }
     }
   }
@@ -1753,28 +2390,118 @@
         reprintOrder(actionBtn.dataset.order);
         return;
       }
-      if (action === "send-receipt") {
-        sendWhatsAppReceipt();
+      if (action === "add-stock") {
+        addStock(false);
         return;
       }
-      if (action === "print-receipt") {
-        showToast("Receipt print initiated");
+      if (action === "add-stock-print") {
+        addStock(true);
         return;
       }
-      if (action === "print-labels") {
-        printLabels();
+      if (action === "print-label") {
+        try {
+          const p = JSON.parse(decodeURIComponent(actionBtn.dataset.product || "%7B%7D"));
+          printProductLabel({ sku: p.sku, name: p.name, price: p.price || 0, mrp: p.mrp || 0, barcode: p.sku });
+        } catch (_) {
+          showToast("Unable to print label");
+        }
+        return;
+      }
+      if (action === "print-selected-labels") {
+        const selected = Array.from(document.querySelectorAll(".label-select:checked")).map((cb) => {
+          try {
+            return JSON.parse(decodeURIComponent(cb.dataset.product || "%7B%7D"));
+          } catch (_) {
+            return null;
+          }
+        }).filter(Boolean).map((p) => ({ sku: p.sku, name: p.name, price: p.price || 0, mrp: p.mrp || 0, barcode: p.sku }));
+        printLabelsForProducts(selected);
+        return;
+      }
+      if (action === "pos-add-item") {
+        posAddItem();
+        return;
+      }
+      if (action === "pos-qty") {
+        posChangeQty(actionBtn.dataset.sku, Number(actionBtn.dataset.delta));
+        return;
+      }
+      if (action === "pos-remove") {
+        posRemove(actionBtn.dataset.sku);
+        return;
+      }
+      if (action === "pos-pay-mode") {
+        posSetPayment(actionBtn.dataset.mode);
+        return;
+      }
+      if (action === "pos-cust-search") {
+        posCustomerSearch();
+        return;
+      }
+      if (action === "pos-confirm-order") {
+        posConfirmOrder();
+        return;
+      }
+      if (action === "cust-save") {
+        saveCustomer();
+        return;
+      }
+      if (action === "cust-view") {
+        viewCustomer(actionBtn.dataset.id);
+        return;
+      }
+      if (action === "cust-search") {
+        searchCustomers();
+        return;
+      }
+      if (action === "cust-clear-search") {
+        clearCustomerSearch();
+        return;
+      }
+      if (action === "cust-clear-detail") {
+        CUST_STATE.detail = null;
+        customersRerender();
+        return;
+      }
+      if (action === "save-settings") {
+        saveSettings();
+        return;
+      }
+      if (action === "pos-print-bill") {
+        posPrintBill(POS_STATE.lastSale || {
+          sale_id: "DRAFT",
+          items: POS_STATE.cart.map((l) => ({ ...l })),
+          totals: posTotals(),
+          customer: { ...POS_STATE.customer },
+          mode: POS_STATE.paymentMode,
+          at: new Date()
+        });
         return;
       }
     }
+  });
 
-    const action = event.target.closest("[data-qa]");
-    if (action) {
-      const msg = {
-        sale: "Quick action: New Sale opened",
-        po: "Quick action: New Purchase Order opened",
-        campaign: "Quick action: Campaign draft opened"
-      };
-      showToast(msg[action.dataset.qa] || "Action triggered");
+  // Keep POS customer fields in state across cart re-renders.
+  document.addEventListener("input", (event) => {
+    if (event.target.id === "pos-cust-name") {
+      POS_STATE.customer.name = event.target.value;
+    } else if (event.target.id === "pos-cust-phone") {
+      POS_STATE.customer.phone = event.target.value;
+      POS_STATE.customer.searched = false;
+    } else if (event.target.id === "pos-cust-place") {
+      POS_STATE.customer.place = event.target.value;
+    }
+  });
+
+  // Select-all toggle for inventory labels + POS mark-paid checkbox.
+  document.addEventListener("change", (event) => {
+    if (event.target.id === "label-select-all") {
+      const checked = event.target.checked;
+      document.querySelectorAll(".label-select").forEach((cb) => {
+        cb.checked = checked;
+      });
+    } else if (event.target.id === "pos-mark-paid-check") {
+      POS_STATE.markPaid = event.target.checked;
     }
   });
 
@@ -1786,6 +2513,7 @@
     }
     if (event.key === "Escape") {
       document.getElementById("auth-modal").classList.remove("show");
+      closeScanner();
     }
   });
 
@@ -1816,6 +2544,31 @@
 
   document.getElementById("auth-cancel").addEventListener("click", () => {
     authModal.classList.remove("show");
+  });
+
+  const scannerModal = document.getElementById("scanner-modal");
+  document.getElementById("scanner-close").addEventListener("click", () => closeScanner());
+  scannerModal.addEventListener("click", (event) => {
+    if (event.target === scannerModal) {
+      closeScanner();
+    }
+  });
+
+  document.getElementById("oc-whatsapp").addEventListener("click", () => {
+    if (POS_STATE.lastSale) {
+      sendWhatsAppBill(POS_STATE.lastSale);
+    }
+  });
+  document.getElementById("oc-print").addEventListener("click", () => {
+    if (POS_STATE.lastSale) {
+      posPrintBill(POS_STATE.lastSale);
+    }
+  });
+  document.getElementById("oc-close").addEventListener("click", () => closeOrderConfirmed());
+  document.getElementById("order-confirmed-modal").addEventListener("click", (event) => {
+    if (event.target.id === "order-confirmed-modal") {
+      closeOrderConfirmed();
+    }
   });
 
   authModal.addEventListener("click", (event) => {

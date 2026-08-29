@@ -3,7 +3,7 @@
     {
       "id": "usr-1",
       "email": "owner@store.com",
-      "password_hash": "ff7bd97b1a7789ddd2775122fd6817f3173672da9f802ceec57f284325bf589f",
+      "password_hash": "ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f",
       "role": "admin",
       "business_id": "business-main",
       "store_ids": ["store-main", "store-north", "store-online"],
@@ -12,7 +12,7 @@
     {
       "id": "usr-2",
       "email": "manager@store.com",
-      "password_hash": "ff7bd97b1a7789ddd2775122fd6817f3173672da9f802ceec57f284325bf589f",
+      "password_hash": "ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f",
       "role": "manager",
       "business_id": "business-main",
       "store_ids": ["store-main", "store-north"],
@@ -21,7 +21,7 @@
     {
       "id": "usr-3",
       "email": "cashier@store.com",
-      "password_hash": "ff7bd97b1a7789ddd2775122fd6817f3173672da9f802ceec57f284325bf589f",
+      "password_hash": "ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f",
       "role": "cashier",
       "business_id": "business-main",
       "store_ids": ["store-main"],

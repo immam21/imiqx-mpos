@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>E-Bill</title>
+<meta name="theme-color" content="#2563EB" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<style>
+  :root { --brand:#1d4ed8; --line:#e2e8f0; --muted:#64748b; --txt:#0f172a; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, Inter, system-ui, sans-serif;
+    color: var(--txt);
+    background: #f1f5f9;
+    padding: 16px;
+    display: flex;
+    justify-content: center;
+  }
+  .receipt {
+    width: min(420px, 100%);
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(15,23,42,.08);
+    padding: 18px;
+  }
+  .biz { text-align: center; }
+  .biz h1 { margin: 0; font-size: 20px; }
+  .biz p { margin: 3px 0; font-size: 12px; color: var(--muted); }
+  .meta { margin: 14px 0; font-size: 12px; display: grid; gap: 4px; }
+  .meta div { display: flex; justify-content: space-between; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  th:last-child, td:last-child, th:nth-child(2), td:nth-child(2), th:nth-child(3), td:nth-child(3) { text-align: right; }
+  .totals { margin-top: 10px; font-size: 13px; display: grid; gap: 4px; }
+  .totals div { display: flex; justify-content: space-between; }
+  .grand { font-weight: 700; font-size: 16px; border-top: 1px dashed var(--line); padding-top: 8px; margin-top: 6px; }
+  .foot { text-align: center; margin-top: 16px; font-size: 12px; color: var(--muted); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .state { text-align: center; padding: 40px 10px; color: var(--muted); }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#dcfce7; color:#166534; font-size:11px; font-weight:600; text-transform:capitalize; }
+</style>
+</head>
+<body>
+  <div class="receipt" id="receipt">
+    <div class="state" id="state">Loading your e-bill…</div>
+  </div>
+
+<script src="config.local.js"></script>
+<script>
+  const API_BASE = window.__ONECOUNTER_API_BASE_URL__ || "http://localhost:8787";
+  const money = (n) => "\u20B9" + Number(n || 0).toLocaleString("en-IN");
+
+  function getParam(name) {
+    return new URLSearchParams(window.location.search).get(name) || "";
+  }
+
+  function render(data) {
+    const b = data.business || {};
+    const s = data.store || {};
+    const addr = [s.name, s.address_line, [s.city, s.state, s.pincode].filter(Boolean).join(" ")].filter(Boolean);
+    const rows = (data.items || []).map((it) =>
+      `<tr><td>${it.name || it.sku}</td><td>${it.quantity}</td><td>${money(it.unit_price)}</td><td>${money(it.line_total)}</td></tr>`
+    ).join("");
+    document.getElementById("receipt").innerHTML = `
+      <div class="biz">
+        <h1>${b.name || "Tax Invoice"}</h1>
+        ${addr.map((l) => `<p>${l}</p>`).join("")}
+        ${b.gstin ? `<p>GSTIN: ${b.gstin}</p>` : ""}
+      </div>
+      <div class="meta">
+        <div><span>Bill No</span><span class="mono">${data.sale_id}</span></div>
+        <div><span>Date</span><span>${new Date(data.created_at).toLocaleString()}</span></div>
+        <div><span>Customer</span><span>${data.customer_name || "-"}</span></div>
+        <div><span>Status</span><span class="badge">${data.status || "paid"}</span></div>
+      </div>
+      <table>
+        <thead><tr><th>Item</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="4">No items</td></tr>`}</tbody>
+      </table>
+      <div class="totals">
+        <div><span>Subtotal</span><span>${money(data.totals.subtotal)}</span></div>
+        <div><span>GST</span><span>${money(data.totals.tax)}</span></div>
+        ${data.totals.discount ? `<div><span>Discount</span><span>-${money(data.totals.discount)}</span></div>` : ""}
+        <div class="grand"><span>Total</span><span>${money(data.totals.total)}</span></div>
+      </div>
+      <div class="foot">
+        Paid via ${(data.payment_modes || ["cash"]).join(", ").toUpperCase()}<br/>
+        Thank you for shopping with us!
+      </div>
+    `;
+  }
+
+  (async function load() {
+    const id = getParam("id");
+    if (!id) {
+      document.getElementById("state").textContent = "Invalid bill link.";
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/v1/receipt?id=${encodeURIComponent(id)}`);
+      if (!res.ok) {
+        throw new Error("not found");
+      }
+      render(await res.json());
+    } catch (_) {
+      document.getElementById("state").textContent = "E-bill not found or unavailable.";
+    }
+  })();
+</script>
+</body>
+</html>

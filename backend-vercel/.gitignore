@@ -1,1 +1,8 @@
 .vercel
+.env.local
+.env.development
+.env.test
+.env.production
+.env.test.local
+.env.example
+.env
