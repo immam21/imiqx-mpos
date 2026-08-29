@@ -19,3 +19,18 @@ alter table customers add column if not exists place text;
 
 -- Optional: an index to speed up phone lookups used by POS + customer search.
 create index if not exists idx_customers_phone on customers (business_id, phone);
+
+-- Shop and miscellaneous expenses used by the dashboard and reports.
+create table if not exists expenses (
+	id uuid primary key default gen_random_uuid(),
+	business_id uuid not null references businesses(id) on delete cascade,
+	store_id uuid not null references stores(id) on delete cascade,
+	expense_date date not null default current_date,
+	category text not null,
+	description text,
+	amount numeric(12,2) not null check (amount > 0),
+	payment_mode text,
+	created_at timestamptz not null default now()
+);
+
+create index if not exists idx_expenses_store_date on expenses (store_id, expense_date desc);

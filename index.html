@@ -88,8 +88,8 @@
 
   #app-shell {
     display: flex;
-    min-height: 100vh;
-    min-height: 100dvh;
+    height: 100vh;
+    height: 100dvh;
   }
 
   .sidebar {
@@ -181,6 +181,7 @@
   .main {
     flex: 1;
     min-width: 0;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     width: 100%;
@@ -730,6 +731,7 @@
     inventoryLedger: "/v1/inventory/ledger",
     labelPrint: "/v1/inventory/labels/print",
     stockIn: "/v1/inventory/stock",
+    inventoryUpdate: "/v1/inventory/product",
     productLookup: "/v1/pos/product-lookup",
     receiptContext: "/v1/pos/receipt-context",
     customers: "/v1/customers",
@@ -739,6 +741,7 @@
     reports: "/v1/reports/tax-summary",
     topProducts: "/v1/reports/top-products",
     reconciliation: "/v1/reports/reconciliation",
+    expenses: "/v1/expenses",
     integrations: "/v1/integrations/status",
     whatsappEvents: "/v1/integrations/whatsapp/events",
     whatsappReceipt: "/v1/integrations/whatsapp/send-receipt",
@@ -770,6 +773,7 @@
   };
 
   const CUST_STATE = { filter: "", detail: null };
+  let INVENTORY_EDIT = null;
 
   const appState = {
     activeTab: "dashboard",
@@ -788,7 +792,8 @@
     integrations: null,
     whatsappEvents: null,
     settings: null,
-    storefront: null
+    storefront: null,
+    expenses: null
   };
 
   const AUTH_KEYS = {
@@ -1118,6 +1123,7 @@
         appState.inventory = await apiFetch(API_ENDPOINTS.inventory);
         appState.inventoryLedger = await apiFetch(API_ENDPOINTS.inventoryLedger);
       }
+      if (tabId === "expenses") appState.expenses = await apiFetch(API_ENDPOINTS.expenses);
       if (tabId === "customers") appState.customers = await apiFetch(API_ENDPOINTS.customers);
       if (tabId === "promotions") appState.promotions = await apiFetch(API_ENDPOINTS.promotions);
       if (tabId === "reports") {
@@ -1766,6 +1772,7 @@
     const name = fieldVal("stock-name");
     const price = Number(fieldVal("stock-price") || 0);
     const offer = Number(fieldVal("stock-offer") || 0) || price;
+    const cost = Number(fieldVal("stock-cost") || 0);
     const tax = Number(fieldVal("stock-tax") || 0);
     const qty = Number(fieldVal("stock-qty") || 0);
     const reorder = Number(fieldVal("stock-reorder") || 0);
@@ -1778,7 +1785,7 @@
     try {
       await apiFetch(API_ENDPOINTS.stockIn, {
         method: "POST",
-        body: JSON.stringify({ sku, name, price, offer_price: offer, tax_percent: tax, qty, reorder_level: reorder, location, hsn, barcode: sku })
+        body: JSON.stringify({ sku, name, price, offer_price: offer, cost_price: cost, tax_percent: tax, qty, reorder_level: reorder, location, hsn, barcode: sku })
       });
       showToast(`Stock added: ${sku} (+${qty})`);
       appState.loaded.inventory = false;
@@ -1792,28 +1799,84 @@
     }
   }
 
+  async function saveInventoryEdit() {
+    if (!INVENTORY_EDIT) return;
+    const sku = fieldVal("stock-sku");
+    const name = fieldVal("stock-name");
+    try {
+      await apiFetch(API_ENDPOINTS.inventoryUpdate, {
+        method: "POST",
+        body: JSON.stringify({
+          sku,
+          name,
+          mrp: Number(fieldVal("stock-price") || 0),
+          price: Number(fieldVal("stock-offer") || 0),
+          cost_price: Number(fieldVal("stock-cost") || 0),
+          tax_percent: Number(fieldVal("stock-tax") || 0),
+          reorder_level: Number(fieldVal("stock-reorder") || 0),
+          location: fieldVal("stock-location")
+        })
+      });
+      INVENTORY_EDIT = null;
+      appState.loaded.inventory = false;
+      showToast(`Inventory updated: ${sku}`);
+      setActive("inventory");
+    } catch (err) {
+      showToast("Inventory update failed: " + (err.message || "error"));
+    }
+  }
+
+  async function saveExpense() {
+    const category = fieldVal("expense-category");
+    const amount = Number(fieldVal("expense-amount") || 0);
+    if (!category || !(amount > 0)) {
+      showToast("Expense category and amount are required");
+      return;
+    }
+    try {
+      await apiFetch(API_ENDPOINTS.expenses, {
+        method: "POST",
+        body: JSON.stringify({
+          category,
+          amount,
+          description: fieldVal("expense-description"),
+          expense_date: fieldVal("expense-date"),
+          payment_mode: fieldVal("expense-payment")
+        })
+      });
+      appState.loaded.expenses = false;
+      appState.loaded.dashboard = false;
+      showToast("Expense recorded");
+      setActive("expenses");
+    } catch (err) {
+      showToast("Expense save failed: " + (err.message || "error"));
+    }
+  }
+
   const NAV = [
-    { id: "dashboard", label: "Dashboard", short: "Home" },
-    { id: "pos", label: "POS", short: "POS" },
-    { id: "orders", label: "Orders", short: "Orders" },
-    { id: "inventory", label: "Inventory", short: "Stock" },
+    { id: "dashboard", label: "Overview", short: "Home" },
+    { id: "pos", label: "New Sale", short: "Sale" },
+    { id: "orders", label: "Sales & Orders", short: "Orders" },
+    { id: "inventory", label: "Stock Catalog", short: "Stock" },
+    { id: "expenses", label: "Expenses", short: "Costs" },
     { id: "store", label: "Online Store", short: "Store" },
-    { id: "customers", label: "Customers", short: "Cust" },
-    { id: "promotions", label: "Promotions", short: "Promo" },
-    { id: "reports", label: "Reports", short: "Reports" },
-    { id: "integrations", label: "Integrations", short: "Links" },
-    { id: "settings", label: "Settings", short: "Setup" }
+    { id: "customers", label: "Customer Book", short: "People" },
+    { id: "promotions", label: "Campaigns", short: "Promo" },
+    { id: "reports", label: "Business Reports", short: "Reports" },
+    { id: "integrations", label: "Connections", short: "Links" },
+    { id: "settings", label: "Store Settings", short: "Setup" }
   ];
 
   const TITLES = {
-    dashboard: ["Dashboard", "Revenue, operations, compliance, and growth in one console"],
+    dashboard: ["Business Overview", "Revenue, operations, compliance, and growth in one console"],
     pos: ["POS", "Counter-optimized checkout with hold, park, and split payments"],
     orders: ["Orders", "Unified in-store and online order lifecycle"],
-    inventory: ["Inventory", "Warehouse-aware stock ledger and procurement"],
+    inventory: ["Stock Catalog", "Product pricing, cost, on-hand stock, and replenishment"],
+    expenses: ["Expenses", "Shop, operating, and miscellaneous costs"],
     store: ["Online Store", "Customer-facing storefront connected to live stock"],
     customers: ["Customers", "Segments, RFM context, and customer timeline"],
     promotions: ["Promotions", "Audience, offer, channel, schedule, approval workflow"],
-    reports: ["Reports", "Sales, tax, cash variance, and margin reconciliation"],
+    reports: ["Business Reports", "Sales, operations, tax, and end-to-end performance"],
     integrations: ["Integrations", "WhatsApp, Sheets, webhooks, and sync health"],
     settings: ["Settings", "Business profile, GST rules, RBAC, and session controls"]
   };
@@ -1837,7 +1900,15 @@
         ["Discounts Given", money(Number(k.discounts) || 0), "Total discounts"],
         ["Returns / Refunds", money(Number(k.returns_refunds) || 0), "Returned amount"],
         ["Tax Collected", money(Number(k.tax_collected) || 0), "GST / tax collected"],
+        ["Monthly Expenses", money(Number(k.expenses) || 0), "Operating and miscellaneous costs"],
         ["Outstanding Amount", money(Number(k.outstanding) || 0), "Customer dues"]
+      ];
+      const periods = dashboardData.sales_periods || {};
+      const periodCards = [
+        ["Today", periods.today],
+        ["Last 3 days", periods.last_3_days],
+        ["This week", periods.this_week],
+        ["This month", periods.this_month]
       ];
       return `
         <div class="section" style="display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:6px;">
@@ -1846,6 +1917,10 @@
         </div>
         <div class="section grid kpi-grid">
           ${cards.map(([label, value, sub]) => `<article class="card reveal"><div class="kpi-label">${label}</div><div class="kpi-value mono">${value}</div><div class="kpi-trend">${sub}</div></article>`).join("")}
+        </div>
+
+        <div class="section grid four-col">
+          ${periodCards.map(([label, period]) => `<article class="card reveal"><div class="kpi-label">${label} sales</div><div class="kpi-value mono">${money(Number(period && period.sales) || 0)}</div><div class="kpi-trend">${Number(period && period.orders) || 0} paid orders</div></article>`).join("")}
         </div>
 
         <div class="section grid two-col">
@@ -1987,23 +2062,24 @@
     inventory() {
       const inventoryData = appState.inventory || { products: [] };
       const ledgerData = appState.inventoryLedger || { entries: [] };
+      const edit = INVENTORY_EDIT;
       return `
         <div class="section card reveal">
-          <h3 style="margin:0 0 10px;">Add Stock</h3>
+          <h3 style="margin:0 0 10px;">${edit ? `Edit ${edit.sku}` : "Add Stock"}</h3>
           <div class="grid four-col">
-            <label class="field"><span aria-hidden="true">Product Code / SKU</span><input id="stock-sku" type="text" placeholder="e.g. TS-1KG" /></label>
-            <label class="field"><span aria-hidden="true">Product Name</span><input id="stock-name" type="text" placeholder="e.g. Tata Salt 1kg" /></label>
-            <label class="field"><span aria-hidden="true">Price / MRP (₹)</span><input id="stock-price" type="number" min="0" step="0.01" placeholder="0.00" /></label>
-            <label class="field"><span aria-hidden="true">Offer Price (₹)</span><input id="stock-offer" type="number" min="0" step="0.01" placeholder="0.00" /></label>
+            <label class="field"><span aria-hidden="true">Product Code / SKU</span><input id="stock-sku" type="text" placeholder="e.g. TS-1KG" value="${edit ? edit.sku : ""}" ${edit ? "readonly" : ""} /></label>
+            <label class="field"><span aria-hidden="true">Product Name</span><input id="stock-name" type="text" placeholder="e.g. Tata Salt 1kg" value="${edit ? edit.name : ""}" /></label>
+            <label class="field"><span aria-hidden="true">Price / MRP (₹)</span><input id="stock-price" type="number" min="0" step="0.01" placeholder="0.00" value="${edit ? edit.mrp || 0 : ""}" /></label>
+            <label class="field"><span aria-hidden="true">Sale Price (₹)</span><input id="stock-offer" type="number" min="0" step="0.01" placeholder="0.00" value="${edit ? edit.price || 0 : ""}" /></label>
+            <label class="field"><span aria-hidden="true">Cost Price (₹)</span><input id="stock-cost" type="number" min="0" step="0.01" placeholder="0.00" value="${edit ? edit.cost_price || 0 : ""}" /></label>
             <label class="field"><span aria-hidden="true">GST %</span><input id="stock-tax" type="number" min="0" max="28" step="0.01" placeholder="0" /></label>
-            <label class="field"><span aria-hidden="true">Quantity</span><input id="stock-qty" type="number" min="1" step="1" placeholder="0" /></label>
-            <label class="field"><span aria-hidden="true">Reorder Level</span><input id="stock-reorder" type="number" min="0" step="1" placeholder="0" /></label>
-            <label class="field"><span aria-hidden="true">Location</span><input id="stock-location" type="text" placeholder="Aisle / Rack" /></label>
+            <label class="field"><span aria-hidden="true">Quantity</span><input id="stock-qty" type="number" min="1" step="1" placeholder="0" ${edit ? "disabled" : ""} /></label>
+            <label class="field"><span aria-hidden="true">Reorder Level</span><input id="stock-reorder" type="number" min="0" step="1" placeholder="0" value="${edit ? edit.reorder_level || 0 : ""}" /></label>
+            <label class="field"><span aria-hidden="true">Location</span><input id="stock-location" type="text" placeholder="Aisle / Rack" value="${edit ? edit.location || "" : ""}" /></label>
             <label class="field"><span aria-hidden="true">HSN</span><input id="stock-hsn" type="text" placeholder="HSN code" /></label>
           </div>
           <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
-            <button class="btn" type="button" data-action="add-stock">Add Stock</button>
-            <button class="btn primary" type="button" data-action="add-stock-print">Add Stock & Print Label</button>
+            ${edit ? `<button class="btn primary" type="button" data-action="save-inventory-edit">Save Changes</button><button class="btn" type="button" data-action="cancel-inventory-edit">Cancel</button>` : `<button class="btn" type="button" data-action="add-stock">Add Stock</button><button class="btn primary" type="button" data-action="add-stock-print">Add Stock & Print Label</button>`}
           </div>
         </div>
 
@@ -2014,14 +2090,14 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th><input type="checkbox" id="label-select-all" /></th><th>SKU</th><th>Name</th><th>MRP</th><th>Offer</th><th>Available</th><th>Reorder</th><th>Status</th><th>Label</th></tr></thead>
+              <thead><tr><th><input type="checkbox" id="label-select-all" /></th><th>SKU</th><th>Name</th><th>Cost</th><th>MRP</th><th>Sale</th><th>Available</th><th>Reorder</th><th>Status</th><th>Actions</th></tr></thead>
               <tbody>
                 ${(inventoryData.products || []).map((p) => {
                   const cls = Number(p.qty) <= Number(p.reorder_level) ? "warn" : "good";
-                  const enc = encodeURIComponent(JSON.stringify({ sku: p.sku, name: p.name, price: p.price || 0, mrp: p.mrp || 0 }));
+                  const enc = encodeURIComponent(JSON.stringify({ sku: p.sku, name: p.name, price: p.price || 0, mrp: p.mrp || 0, cost_price: p.cost_price || 0, reorder_level: p.reorder_level || 0, location: p.location || "" }));
                   const mrpCell = (p.mrp && p.mrp > (p.price || 0)) ? `<span style="text-decoration:line-through; color:var(--color-muted-foreground);">${money(p.mrp)}</span>` : money(p.mrp || p.price || 0);
-                  return `<tr><td><input type="checkbox" class="label-select" data-product="${enc}" /></td><td class="mono">${p.sku}</td><td>${p.name}</td><td class="mono">${mrpCell}</td><td class="mono">${money(p.price || 0)}</td><td>${p.qty}</td><td>${p.reorder_level}</td><td><span class="chip ${cls}">${Number(p.qty) <= Number(p.reorder_level) ? "Low" : "Healthy"}</span></td><td><button class="btn" type="button" data-action="print-label" data-product="${enc}">Print</button></td></tr>`;
-                }).join("") || `<tr><td colspan="9">No stock data.</td></tr>`}
+                  return `<tr><td><input type="checkbox" class="label-select" data-product="${enc}" /></td><td class="mono">${p.sku}</td><td>${p.name}</td><td class="mono">${money(p.cost_price || 0)}</td><td class="mono">${mrpCell}</td><td class="mono">${money(p.price || 0)}</td><td>${p.qty}</td><td>${p.reorder_level}</td><td><span class="chip ${cls}">${Number(p.qty) <= Number(p.reorder_level) ? "Low" : "Healthy"}</span></td><td style="display:flex; gap:6px;"><button class="btn" type="button" data-action="edit-inventory" data-product="${enc}">Edit</button><button class="btn" type="button" data-action="print-label" data-product="${enc}">Print</button></td></tr>`;
+                }).join("") || `<tr><td colspan="10">No stock data.</td></tr>`}
               </tbody>
             </table>
           </div>
@@ -2039,6 +2115,27 @@
           </div>
         </div>
       `;
+    },
+
+    expenses() {
+      const expenses = (appState.expenses && appState.expenses.items) || [];
+      const total = expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      return `
+        <div class="section card reveal">
+          <h3 class="panel-title">Record Shop Expense</h3>
+          <div class="grid four-col">
+            <label class="field"><span>Category</span><select id="expense-category"><option value="Shop expense">Shop expense</option><option value="Utilities">Utilities</option><option value="Rent">Rent</option><option value="Staff">Staff</option><option value="Transport">Transport</option><option value="Miscellaneous">Miscellaneous</option></select></label>
+            <label class="field"><span>Amount (₹)</span><input id="expense-amount" type="number" min="0.01" step="0.01" placeholder="0.00" /></label>
+            <label class="field"><span>Date</span><input id="expense-date" type="date" value="${new Date().toISOString().slice(0, 10)}" /></label>
+            <label class="field"><span>Payment</span><select id="expense-payment"><option value="cash">Cash</option><option value="upi">UPI</option><option value="bank">Bank</option></select></label>
+          </div>
+          <label class="field" style="margin-top:10px;"><span>Description</span><input id="expense-description" type="text" placeholder="What was this expense for?" /></label>
+          <div style="margin-top:10px;"><button class="btn primary" type="button" data-action="save-expense">Add Expense</button></div>
+        </div>
+        <article class="card reveal">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;"><h3 class="panel-title" style="margin:0;">Recent Expenses</h3><span class="chip warn">${money(total)} recorded</span></div>
+          <div class="table-wrap"><table><thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Payment</th><th>Amount</th></tr></thead><tbody>${expenses.map((item) => `<tr><td>${item.expense_date}</td><td>${item.category}</td><td>${item.description || "-"}</td><td>${item.payment_mode || "-"}</td><td class="mono">${money(item.amount)}</td></tr>`).join("") || `<tr><td colspan="5">No expenses recorded.</td></tr>`}</tbody></table></div>
+        </article>`;
     },
 
     customers() {
@@ -2168,6 +2265,11 @@
       const top = appState.topProducts || { items: [] };
       const tax = appState.reports || {};
       return `
+        <div class="section grid three-col">
+          <article class="card reveal"><h3 class="panel-title">Sales Report</h3><div class="alert-row"><span>Top products</span><span class="mono">${(top.items || []).length}</span></div><div class="alert-row"><span>Sales tax base</span><span class="mono">${money(Number(tax.taxable_value || 0))}</span></div></article>
+          <article class="card reveal"><h3 class="panel-title">Operations Report</h3><div class="alert-row"><span>Reconciliation records</span><span class="mono">${(rec.rows || []).length}</span></div><div class="alert-row"><span>Unmatched settlements</span><span class="mono">${(rec.rows || []).filter((row) => Number(row.variance) !== 0).length}</span></div></article>
+          <article class="card reveal"><h3 class="panel-title">End-to-End Report</h3><div class="alert-row"><span>Taxable sales</span><span class="mono">${money(Number(tax.taxable_value || 0))}</span></div><div class="alert-row"><span>GST collected</span><span class="mono">${money(Number(tax.cgst || 0) + Number(tax.sgst || 0) + Number(tax.igst || 0))}</span></div></article>
+        </div>
         <div class="section grid two-col">
           <article class="card reveal">
             <h3 class="panel-title">Tax Summary (GST)</h3>
@@ -2463,6 +2565,28 @@
           }
         }).filter(Boolean).map((p) => ({ sku: p.sku, name: p.name, price: p.price || 0, mrp: p.mrp || 0, barcode: p.sku }));
         printLabelsForProducts(selected);
+        return;
+      }
+      if (action === "edit-inventory") {
+        try {
+          INVENTORY_EDIT = JSON.parse(decodeURIComponent(actionBtn.dataset.product || "%7B%7D"));
+          setActive("inventory");
+        } catch (_) {
+          showToast("Unable to open inventory item");
+        }
+        return;
+      }
+      if (action === "save-inventory-edit") {
+        saveInventoryEdit();
+        return;
+      }
+      if (action === "cancel-inventory-edit") {
+        INVENTORY_EDIT = null;
+        setActive("inventory");
+        return;
+      }
+      if (action === "save-expense") {
+        saveExpense();
         return;
       }
       if (action === "pos-add-item") {

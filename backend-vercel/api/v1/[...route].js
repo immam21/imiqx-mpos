@@ -46,6 +46,27 @@ function startOfTodayIso() {
   return d.toISOString();
 }
 
+function startOfDaysAgoIso(daysAgo) {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - daysAgo);
+  return d.toISOString();
+}
+
+function startOfWeekIso() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d.toISOString();
+}
+
+function startOfMonthIso() {
+  const d = new Date();
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
 function encode(value) {
   return encodeURIComponent(String(value));
 }
@@ -451,7 +472,12 @@ module.exports = async function handler(req, res) {
         cogs = lineItems.reduce((a, it) => a + (Number(it.quantity || 0) * (costByProduct[it.product_id] || 0)), 0);
       }
       const grossProfit = itemsRevenue - cogs;
-      const netProfit = grossProfit; // expenses not tracked in the schema
+      const currentMonthExpenses = await sbSelect(
+        "expenses",
+        `select=amount&store_id=eq.${ctx.storeId}&expense_date=gte.${encode(startOfMonthIso().slice(0, 10))}`
+      ).catch(() => []);
+      const expenses = currentMonthExpenses.reduce((total, expense) => total + Number(expense.amount || 0), 0);
+      const netProfit = grossProfit - expenses;
       const profitMargin = netSales > 0 ? Math.round((netProfit / netSales) * 1000) / 10 : 0;
 
       const balances = await sbSelect(
@@ -483,6 +509,25 @@ module.exports = async function handler(req, res) {
         .slice(0, 5)
         .map((b) => `Low stock: ${(b.products && b.products.name) || "SKU"} (${b.qty_on_hand} left)`);
 
+      const rangeStarts = {
+        today: startOfTodayIso(),
+        last_3_days: startOfDaysAgoIso(2),
+        this_week: startOfWeekIso(),
+        this_month: startOfMonthIso()
+      };
+      const rangeSales = {};
+      await Promise.all(Object.entries(rangeStarts).map(async ([key, start]) => {
+        const orders = await sbSelect(
+          "orders",
+          `select=total_amount,status&store_id=eq.${ctx.storeId}&created_at=gte.${encode(start)}`
+        );
+        const paidOrders = orders.filter((order) => order.status === "paid");
+        rangeSales[key] = {
+          sales: paidOrders.reduce((total, order) => total + Number(order.total_amount || 0), 0),
+          orders: paidOrders.length
+        };
+      }));
+
       sendJson(res, 200, {
         kpis: {
           total_sales: totalSales,
@@ -497,8 +542,10 @@ module.exports = async function handler(req, res) {
           returns_refunds: returnsRefunds,
           tax_collected: taxCollected,
           outstanding: outstanding,
+          expenses,
           low_stock_skus: lowStock.length
         },
+        sales_periods: rangeSales,
         trend,
         alerts
       });
@@ -555,6 +602,36 @@ module.exports = async function handler(req, res) {
           variance: Number(r.variance)
         }))
       });
+      return;
+    }
+
+    if (pathname === "/v1/expenses" && req.method === "GET") {
+      const rows = await sbSelect(
+        "expenses",
+        `select=id,expense_date,category,description,amount,payment_mode,created_at&store_id=eq.${ctx.storeId}&order=expense_date.desc,created_at.desc&limit=100`
+      );
+      sendJson(res, 200, { items: rows.map((row) => ({ ...row, amount: Number(row.amount || 0) })) });
+      return;
+    }
+
+    if (pathname === "/v1/expenses" && req.method === "POST") {
+      const body = await parseBody(req);
+      const amount = Number(body.amount || 0);
+      const category = String(body.category || "").trim();
+      if (!category || !(amount > 0)) {
+        sendJson(res, 400, { error: "category and positive amount required" });
+        return;
+      }
+      const inserted = await sbInsert("expenses", [{
+        business_id: ctx.businessId,
+        store_id: ctx.storeId,
+        expense_date: body.expense_date || nowIso().slice(0, 10),
+        category,
+        description: String(body.description || "").trim() || null,
+        amount,
+        payment_mode: body.payment_mode || null
+      }]);
+      sendJson(res, 201, { item: { ...inserted[0], amount: Number(inserted[0].amount || amount) } });
       return;
     }
 
@@ -617,12 +694,12 @@ module.exports = async function handler(req, res) {
       );
       const prices = await sbSelect(
         "product_prices",
-        `select=product_id,mrp,selling_price,effective_from&store_id=eq.${ctx.storeId}&order=effective_from.desc`
+        `select=product_id,mrp,selling_price,cost_price,effective_from&store_id=eq.${ctx.storeId}&order=effective_from.desc`
       ).catch(() => []);
       const priceByProduct = {};
       prices.forEach((pr) => {
         if (!(pr.product_id in priceByProduct)) {
-          priceByProduct[pr.product_id] = { mrp: Number(pr.mrp), offer: Number(pr.selling_price) };
+          priceByProduct[pr.product_id] = { mrp: Number(pr.mrp), offer: Number(pr.selling_price), cost: Number(pr.cost_price || 0) };
         }
       });
       sendJson(res, 200, {
@@ -633,7 +710,8 @@ module.exports = async function handler(req, res) {
           reorder_level: Number(r.reorder_level || 0),
           location: r.location || "",
           price: priceByProduct[r.product_id] ? priceByProduct[r.product_id].offer : 0,
-          mrp: priceByProduct[r.product_id] ? priceByProduct[r.product_id].mrp : 0
+          mrp: priceByProduct[r.product_id] ? priceByProduct[r.product_id].mrp : 0,
+          cost_price: priceByProduct[r.product_id] ? priceByProduct[r.product_id].cost : 0
         }))
       });
       return;
@@ -681,6 +759,7 @@ module.exports = async function handler(req, res) {
       const qty = Number(body.qty || 0);
       const price = Number(body.price || 0); // MRP
       const offerPrice = Number(body.offer_price || 0) || price; // selling price
+      const costPrice = Number(body.cost_price || 0);
       if (!sku || !name || !(qty > 0)) {
         sendJson(res, 400, { error: "sku, name and positive qty required" });
         return;
@@ -713,6 +792,7 @@ module.exports = async function handler(req, res) {
             product_id: product.id,
             mrp: price || offerPrice,
             selling_price: offerPrice,
+            cost_price: costPrice,
             effective_from: nowIso()
           }
         ]);
@@ -755,6 +835,42 @@ module.exports = async function handler(req, res) {
       ]);
 
       sendJson(res, 201, { sku, name, price, offer_price: offerPrice, qty, barcode: body.barcode || sku });
+      return;
+    }
+
+    if (pathname === "/v1/inventory/product" && req.method === "POST") {
+      const body = await parseBody(req);
+      const sku = String(body.sku || "").trim();
+      if (!sku) {
+        sendJson(res, 400, { error: "sku required" });
+        return;
+      }
+      const product = (await sbSelect("products", `select=id&sku=eq.${encode(sku)}&business_id=eq.${ctx.businessId}&limit=1`))[0];
+      if (!product) {
+        sendJson(res, 404, { error: "product_not_found" });
+        return;
+      }
+      await sbUpdate("products", `id=eq.${product.id}`, {
+        name: String(body.name || "").trim() || sku,
+        tax_percent: Number(body.tax_percent || 0)
+      });
+      await sbInsert("product_prices", [{
+        business_id: ctx.businessId,
+        store_id: ctx.storeId,
+        product_id: product.id,
+        mrp: Number(body.mrp || 0),
+        selling_price: Number(body.price || 0),
+        cost_price: Number(body.cost_price || 0),
+        effective_from: nowIso()
+      }]);
+      const balance = (await sbSelect("inventory_balances", `select=id&store_id=eq.${ctx.storeId}&product_id=eq.${product.id}&limit=1`))[0];
+      if (balance) {
+        await sbUpdate("inventory_balances", `id=eq.${balance.id}`, {
+          reorder_level: Number(body.reorder_level || 0),
+          location: String(body.location || "").trim() || null
+        });
+      }
+      sendJson(res, 200, { status: "updated", sku });
       return;
     }
 
