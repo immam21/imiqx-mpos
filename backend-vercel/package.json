@@ -1,0 +1,9 @@
+{
+  "name": "onecounter-backend-vercel",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "vercel dev"
+  }
+}
