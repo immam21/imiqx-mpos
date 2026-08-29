@@ -666,7 +666,8 @@
   </div>
 </div>
 
-<script src="config.local.js"></script>
+<script src="config.js"></script>
+<script>if(["localhost","127.0.0.1"].indexOf(location.hostname)!==-1){document.write('<scr'+'ipt src="config.local.js"><\/scr'+'ipt>');}</script>
 <script src="vendor/JsBarcode.all.min.js"></script>
 <script src="vendor/qrcode.min.js"></script>
 <script src="vendor/jspdf.umd.min.js"></script>

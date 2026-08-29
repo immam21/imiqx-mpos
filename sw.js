@@ -1,5 +1,5 @@
-const CACHE = 'onecounter-v8';
-const ASSETS = ['./', './index.html', './manifest.json', './icon.svg', './config.local.js', './receipt.html', './vendor/JsBarcode.all.min.js', './vendor/qrcode.min.js', './vendor/jspdf.umd.min.js', './vendor/html5-qrcode.min.js'];
+const CACHE = 'onecounter-v9';
+const ASSETS = ['./', './index.html', './manifest.json', './icon.svg', './config.js', './receipt.html', './vendor/JsBarcode.all.min.js', './vendor/qrcode.min.js', './vendor/jspdf.umd.min.js', './vendor/html5-qrcode.min.js'];
 const OUTBOX_DB = 'onecounter-outbox';
 const OUTBOX_STORE = 'requests';
 const POS_SALES_PATH = '/v1/pos/sales';

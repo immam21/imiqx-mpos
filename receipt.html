@@ -48,7 +48,8 @@
     <div class="state" id="state">Loading your e-bill…</div>
   </div>
 
-<script src="config.local.js"></script>
+<script src="config.js"></script>
+<script>if(["localhost","127.0.0.1"].indexOf(location.hostname)!==-1){document.write('<scr'+'ipt src="config.local.js"><\/scr'+'ipt>');}</script>
 <script>
   const API_BASE = window.__ONECOUNTER_API_BASE_URL__ || "http://localhost:8787";
   const money = (n) => "\u20B9" + Number(n || 0).toLocaleString("en-IN");
