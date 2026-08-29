@@ -1120,20 +1120,26 @@
       if (tabId === "dashboard") appState.dashboard = await apiFetch(API_ENDPOINTS.dashboard);
       if (tabId === "orders") appState.orders = await apiFetch(API_ENDPOINTS.orders);
       if (tabId === "inventory") {
-        appState.inventory = await apiFetch(API_ENDPOINTS.inventory);
-        appState.inventoryLedger = await apiFetch(API_ENDPOINTS.inventoryLedger);
+        [appState.inventory, appState.inventoryLedger] = await Promise.all([
+          apiFetch(API_ENDPOINTS.inventory),
+          apiFetch(API_ENDPOINTS.inventoryLedger)
+        ]);
       }
       if (tabId === "expenses") appState.expenses = await apiFetch(API_ENDPOINTS.expenses);
       if (tabId === "customers") appState.customers = await apiFetch(API_ENDPOINTS.customers);
       if (tabId === "promotions") appState.promotions = await apiFetch(API_ENDPOINTS.promotions);
       if (tabId === "reports") {
-        appState.reports = await apiFetch(API_ENDPOINTS.reports);
-        appState.topProducts = await apiFetch(API_ENDPOINTS.topProducts);
-        appState.reconciliation = await apiFetch(API_ENDPOINTS.reconciliation);
+        [appState.reports, appState.topProducts, appState.reconciliation] = await Promise.all([
+          apiFetch(API_ENDPOINTS.reports),
+          apiFetch(API_ENDPOINTS.topProducts),
+          apiFetch(API_ENDPOINTS.reconciliation)
+        ]);
       }
       if (tabId === "integrations") {
-        appState.integrations = await apiFetch(API_ENDPOINTS.integrations);
-        appState.whatsappEvents = await apiFetch(API_ENDPOINTS.whatsappEvents);
+        [appState.integrations, appState.whatsappEvents] = await Promise.all([
+          apiFetch(API_ENDPOINTS.integrations),
+          apiFetch(API_ENDPOINTS.whatsappEvents)
+        ]);
       }
       if (tabId === "settings") appState.settings = await apiFetch(API_ENDPOINTS.settings);
       if (tabId === "store") appState.storefront = await apiFetch(API_ENDPOINTS.onlineStore);

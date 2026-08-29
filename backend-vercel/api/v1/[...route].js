@@ -429,10 +429,28 @@ module.exports = async function handler(req, res) {
 
     // ------------------------- Dashboard -------------------------
     if (pathname === "/v1/reports/dashboard" && req.method === "GET") {
-      const todayOrders = await sbSelect(
-        "orders",
-        `select=id,status,subtotal,tax_amount,discount_amount,total_amount&store_id=eq.${ctx.storeId}&created_at=gte.${encode(startOfTodayIso())}`
-      );
+      const todayStart = startOfTodayIso();
+      const weekStart = startOfDaysAgoIso(6);
+      const monthStart = startOfMonthIso();
+      const [monthOrders, balances, currentMonthExpenses, priceRows] = await Promise.all([
+        sbSelect(
+          "orders",
+          `select=id,status,subtotal,tax_amount,discount_amount,total_amount,created_at&store_id=eq.${ctx.storeId}&created_at=gte.${encode(monthStart)}`
+        ),
+        sbSelect(
+          "inventory_balances",
+          `select=qty_on_hand,reorder_level,products(name)&store_id=eq.${ctx.storeId}`
+        ),
+        sbSelect(
+          "expenses",
+          `select=amount&store_id=eq.${ctx.storeId}&expense_date=gte.${encode(monthStart.slice(0, 10))}`
+        ).catch(() => []),
+        sbSelect(
+          "product_prices",
+          `select=product_id,cost_price,effective_from&store_id=eq.${ctx.storeId}&order=effective_from.desc`
+        ).catch(() => [])
+      ]);
+      const todayOrders = monthOrders.filter((order) => order.created_at >= todayStart);
       const paid = todayOrders.filter((o) => o.status === "paid");
       const returned = todayOrders.filter((o) => o.status === "returned" || o.status === "voided");
       const unpaid = todayOrders.filter((o) => o.status === "created");
@@ -459,10 +477,6 @@ module.exports = async function handler(req, res) {
         itemsSold = lineItems.reduce((a, it) => a + Number(it.quantity || 0), 0);
         itemsRevenue = lineItems.reduce((a, it) => a + Number(it.line_total || 0), 0);
 
-        const priceRows = await sbSelect(
-          "product_prices",
-          `select=product_id,cost_price,effective_from&store_id=eq.${ctx.storeId}&order=effective_from.desc`
-        ).catch(() => []);
         const costByProduct = {};
         priceRows.forEach((pr) => {
           if (!(pr.product_id in costByProduct)) {
@@ -472,27 +486,13 @@ module.exports = async function handler(req, res) {
         cogs = lineItems.reduce((a, it) => a + (Number(it.quantity || 0) * (costByProduct[it.product_id] || 0)), 0);
       }
       const grossProfit = itemsRevenue - cogs;
-      const currentMonthExpenses = await sbSelect(
-        "expenses",
-        `select=amount&store_id=eq.${ctx.storeId}&expense_date=gte.${encode(startOfMonthIso().slice(0, 10))}`
-      ).catch(() => []);
       const expenses = currentMonthExpenses.reduce((total, expense) => total + Number(expense.amount || 0), 0);
       const netProfit = grossProfit - expenses;
       const profitMargin = netSales > 0 ? Math.round((netProfit / netSales) * 1000) / 10 : 0;
 
-      const balances = await sbSelect(
-        "inventory_balances",
-        `select=qty_on_hand,reorder_level,products(name)&store_id=eq.${ctx.storeId}`
-      );
       const lowStock = balances.filter((b) => Number(b.qty_on_hand) <= Number(b.reorder_level));
 
-      const weekStart = new Date();
-      weekStart.setHours(0, 0, 0, 0);
-      weekStart.setDate(weekStart.getDate() - 6);
-      const weekOrders = await sbSelect(
-        "orders",
-        `select=total_amount,created_at,status&store_id=eq.${ctx.storeId}&created_at=gte.${encode(weekStart.toISOString())}`
-      );
+      const weekOrders = monthOrders.filter((order) => order.created_at >= weekStart);
       const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       const trend = [];
       for (let i = 6; i >= 0; i -= 1) {
@@ -510,23 +510,19 @@ module.exports = async function handler(req, res) {
         .map((b) => `Low stock: ${(b.products && b.products.name) || "SKU"} (${b.qty_on_hand} left)`);
 
       const rangeStarts = {
-        today: startOfTodayIso(),
+        today: todayStart,
         last_3_days: startOfDaysAgoIso(2),
         this_week: startOfWeekIso(),
-        this_month: startOfMonthIso()
+        this_month: monthStart
       };
       const rangeSales = {};
-      await Promise.all(Object.entries(rangeStarts).map(async ([key, start]) => {
-        const orders = await sbSelect(
-          "orders",
-          `select=total_amount,status&store_id=eq.${ctx.storeId}&created_at=gte.${encode(start)}`
-        );
-        const paidOrders = orders.filter((order) => order.status === "paid");
+      Object.entries(rangeStarts).forEach(([key, start]) => {
+        const paidOrders = monthOrders.filter((order) => order.created_at >= start && order.status === "paid");
         rangeSales[key] = {
           sales: paidOrders.reduce((total, order) => total + Number(order.total_amount || 0), 0),
           orders: paidOrders.length
         };
-      }));
+      });
 
       sendJson(res, 200, {
         kpis: {
