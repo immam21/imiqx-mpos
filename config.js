@@ -8,7 +8,7 @@
   var isLocal = ["localhost", "127.0.0.1"].indexOf(location.hostname) !== -1;
 
   // Backend API base URL. Same-origin in production, localhost:8787 in dev.
-  window.__ONECOUNTER_API_BASE_URL__ = isLocal ? "http://localhost:8787" : location.origin;
+  window.__ONECOUNTER_API_BASE_URL__ = isLocal ? "http://localhost:8787" : "https://imiqx-mpos-backend.vercel.app";
 
   window.__ONECOUNTER_BUSINESS_ID__ = "business-main";
   window.__ONECOUNTER_STORE_ID__ = "store-main";
