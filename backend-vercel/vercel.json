@@ -5,7 +5,8 @@
     }
   },
   "rewrites": [
-    { "source": "/v1/:path*", "destination": "/api/v1/:path*" },
+    { "source": "/v1/:path*", "destination": "/api/:path*" },
+    { "source": "/api/v1/:path*", "destination": "/api/:path*" },
     { "source": "/health", "destination": "/api/health" }
   ]
 }
