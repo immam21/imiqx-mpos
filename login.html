@@ -5,7 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>OneCounter Login</title>
 <meta name="theme-color" content="#2563EB" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="OneCounter" />
+<link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="icon.svg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Calistoga&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -204,6 +210,7 @@
 
 <script src="config.js"></script>
 <script>if(["localhost","127.0.0.1"].indexOf(location.hostname)!==-1){document.write('<scr'+'ipt src="config.local.js"><\/scr'+'ipt>');}</script>
+<script src="pwa.js"></script>
 <script>
   const AUTH_KEYS = {
     access: "onecounter_access_token",
@@ -407,6 +414,8 @@
       uaStatus.textContent = err.message || "Action failed.";
     }
   });
+
+  OneCounterPWA.init();
 </script>
 </body>
 </html>

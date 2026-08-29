@@ -88,11 +88,15 @@
 
   #app-shell {
     display: flex;
-    height: 100vh;
+    min-height: 100vh;
+    min-height: 100dvh;
   }
 
   .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
     width: var(--sidebar-width);
+    max-width: min(86vw, var(--sidebar-width));
     background: linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.96));
     color: #DCE5F4;
     border-right: 1px solid rgba(255, 255, 255, 0.08);
@@ -100,7 +104,23 @@
     display: flex;
     flex-direction: column;
     justify-content: space-between;
+    box-shadow: 0 24px 48px rgba(15, 23, 42, 0.28);
+    transform: translateX(calc(-100% - 12px));
+    transition: transform 220ms ease;
+    z-index: 80;
   }
+  body.nav-open .sidebar { transform: translateX(0); }
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.42);
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 220ms ease;
+    z-index: 70;
+  }
+  body.nav-open .sidebar-backdrop { opacity: 1; pointer-events: auto; }
   .brand {
     display: flex;
     align-items: center;
@@ -163,9 +183,13 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
+    width: 100%;
   }
 
   .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
     border-bottom: 1px solid var(--color-border);
     background: rgba(248, 250, 252, 0.85);
     backdrop-filter: blur(10px);
@@ -175,6 +199,35 @@
     justify-content: space-between;
     gap: 14px;
   }
+  .topbar-primary { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .menu-btn {
+    border: 1px solid var(--color-border);
+    background: rgba(255, 255, 255, 0.82);
+    color: var(--color-foreground);
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    display: inline-grid;
+    place-items: center;
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    flex: 0 0 auto;
+  }
+  .menu-btn-lines, .menu-btn-lines::before, .menu-btn-lines::after {
+    content: "";
+    display: block;
+    width: 16px;
+    height: 2px;
+    border-radius: 999px;
+    background: currentColor;
+    transition: transform 180ms ease;
+  }
+  .menu-btn-lines { position: relative; }
+  .menu-btn-lines::before { position: absolute; top: -5px; left: 0; }
+  .menu-btn-lines::after { position: absolute; top: 5px; left: 0; }
+  body.nav-open .menu-btn-lines { background: transparent; }
+  body.nav-open .menu-btn-lines::before { transform: translateY(5px) rotate(45deg); }
+  body.nav-open .menu-btn-lines::after { transform: translateY(-5px) rotate(-45deg); }
   .title-wrap h1 { margin: 0; font-size: 26px; font-weight: 400; line-height: 1.1; }
   .title-wrap p { margin: 4px 0 0; color: var(--color-muted-foreground); font-size: 12px; }
 
@@ -508,44 +561,20 @@
   }
 
   @media (max-width: 900px) {
-    .sidebar { display: none; }
     .topbar { padding: 12px; }
     .content { padding: 12px 12px 94px; }
     .field input { width: 130px; }
     .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .three-col, .four-col { grid-template-columns: 1fr; }
 
-    #mobile-nav {
-      position: fixed;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      z-index: 40;
-      display: flex;
-      background: rgba(255, 255, 255, 0.95);
-      border-top: 1px solid var(--color-border);
-      backdrop-filter: blur(10px);
-      padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
-      overflow-x: auto;
-      gap: 2px;
-    }
-    .mnav-btn {
-      border: 0;
-      background: transparent;
-      color: #64748B;
-      font-size: 10px;
-      font-weight: 600;
-      border-radius: 9px;
-      min-width: 72px;
-      padding: 7px 8px;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      align-items: center;
-      cursor: pointer;
-    }
-    .mnav-btn.active { color: #1D4ED8; background: #EAF1FF; }
     #install-banner { bottom: calc(74px + env(safe-area-inset-bottom)); }
+  }
+
+  @media (max-width: 720px) {
+    .topbar { align-items: flex-start; flex-direction: column; }
+    .top-actions { width: 100%; justify-content: flex-start; }
+    .field { width: 100%; }
+    .field input, .field select { width: 100%; min-width: 0; }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -556,6 +585,7 @@
 <body>
 <a href="#view-root" class="skip-link">Skip to main content</a>
 <div id="app-shell">
+  <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
   <aside class="sidebar">
     <div>
       <div class="brand">
@@ -576,9 +606,14 @@
 
   <main class="main">
     <header class="topbar">
-      <div class="title-wrap">
-        <h1 id="view-title" class="display">Dashboard</h1>
-        <p id="view-subtitle">Revenue, operations, compliance, and growth in one console</p>
+      <div class="topbar-primary">
+        <button class="menu-btn" id="menu-toggle" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar-nav">
+          <span class="menu-btn-lines" aria-hidden="true"></span>
+        </button>
+        <div class="title-wrap">
+          <h1 id="view-title" class="display">Dashboard</h1>
+          <p id="view-subtitle">Revenue, operations, compliance, and growth in one console</p>
+        </div>
       </div>
       <div class="top-actions">
         <label class="field" aria-label="Store selector">
@@ -608,7 +643,6 @@
     <section id="view-root" class="content" tabindex="-1"></section>
   </main>
 </div>
-<nav id="mobile-nav" aria-label="Mobile navigation"></nav>
 <div id="toast" role="status" aria-live="polite"></div>
 
 <div id="install-banner" role="region" aria-label="Install app prompt">
@@ -672,6 +706,7 @@
 <script src="vendor/qrcode.min.js"></script>
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="vendor/html5-qrcode.min.js"></script>
+<script src="pwa.js"></script>
 <script>
   const money = (n) => "\u20B9" + n.toLocaleString("en-IN");
 
@@ -2288,9 +2323,15 @@
   function renderNav() {
     const navHtml = NAV.map((n) => `<button class="nav-btn" data-tab="${n.id}" type="button">${n.label}</button>`).join("");
     document.getElementById("sidebar-nav").innerHTML = navHtml;
+  }
 
-    const mobileHtml = NAV.map((n) => `<button class="mnav-btn" data-tab="${n.id}" type="button"><span>${n.short}</span></button>`).join("");
-    document.getElementById("mobile-nav").innerHTML = mobileHtml;
+  function setNavOpen(open) {
+    document.body.classList.toggle("nav-open", open);
+    const backdrop = document.getElementById("sidebar-backdrop");
+    const toggle = document.getElementById("menu-toggle");
+    backdrop.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.setAttribute("aria-label", open ? "Close menu" : "Open menu");
   }
 
   function showToast(message) {
@@ -2374,9 +2415,14 @@
 
   document.addEventListener("click", (event) => {
     recordUserActivity();
+    if (event.target.id === "sidebar-backdrop") {
+      setNavOpen(false);
+      return;
+    }
     const tab = event.target.closest("[data-tab]");
     if (tab) {
       setActive(tab.dataset.tab);
+      setNavOpen(false);
       return;
     }
 
@@ -2513,9 +2559,14 @@
       document.getElementById("global-search").focus();
     }
     if (event.key === "Escape") {
+      setNavOpen(false);
       document.getElementById("auth-modal").classList.remove("show");
       closeScanner();
     }
+  });
+
+  document.getElementById("menu-toggle").addEventListener("click", () => {
+    setNavOpen(!document.body.classList.contains("nav-open"));
   });
 
   const authModal = document.getElementById("auth-modal");

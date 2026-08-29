@@ -1,5 +1,5 @@
-const CACHE = 'onecounter-v9';
-const ASSETS = ['./', './index.html', './manifest.json', './icon.svg', './config.js', './receipt.html', './vendor/JsBarcode.all.min.js', './vendor/qrcode.min.js', './vendor/jspdf.umd.min.js', './vendor/html5-qrcode.min.js'];
+const CACHE = 'onecounter-v10';
+const ASSETS = ['./', './index.html', './login.html', './receipt.html', './manifest.json', './icon.svg', './config.js', './pwa.js', './vendor/JsBarcode.all.min.js', './vendor/qrcode.min.js', './vendor/jspdf.umd.min.js', './vendor/html5-qrcode.min.js'];
 const OUTBOX_DB = 'onecounter-outbox';
 const OUTBOX_STORE = 'requests';
 const POS_SALES_PATH = '/v1/pos/sales';
@@ -105,6 +105,16 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
+  const navigationFallback = () => {
+    if (url.pathname.endsWith('/login.html')) {
+      return caches.match('./login.html');
+    }
+    if (url.pathname.endsWith('/receipt.html')) {
+      return caches.match('./receipt.html');
+    }
+    return caches.match('./index.html');
+  };
+
   if (request.method === 'POST' && url.pathname.endsWith(POS_SALES_PATH)) {
     event.respondWith((async () => {
       try {
@@ -125,7 +135,7 @@ self.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => caches.match('./index.html'))
+      fetch(request).catch(() => navigationFallback())
     );
     return;
   }
