@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>OneCounter Login</title>
+<meta name="theme-color" content="#2563EB" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Calistoga&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg-a: #f8fbff;
+    --bg-b: #f5efe7;
+    --card: #ffffff;
+    --txt: #1f2937;
+    --muted: #6b7280;
+    --line: #dbe4ef;
+    --brand: #1d4ed8;
+    --brand-2: #f97316;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    font-family: Inter, sans-serif;
+    color: var(--txt);
+    background:
+      radial-gradient(900px 420px at 85% -10%, rgba(29, 78, 216, 0.18), transparent 70%),
+      radial-gradient(760px 300px at 5% 5%, rgba(249, 115, 22, 0.14), transparent 68%),
+      linear-gradient(180deg, var(--bg-a), var(--bg-b));
+    display: grid;
+    place-items: center;
+    padding: 20px;
+  }
+  .shell {
+    width: min(460px, 100%);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: linear-gradient(160deg, rgba(255,255,255,0.95), rgba(255,255,255,0.88));
+    box-shadow: 0 18px 42px rgba(30, 64, 175, 0.12), 0 6px 18px rgba(15, 23, 42, 0.08);
+    padding: 22px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .logo {
+    width: 38px;
+    height: 38px;
+    border-radius: 11px;
+    color: #fff;
+    font-weight: 700;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(145deg, var(--brand), #3b82f6);
+  }
+  h1 {
+    margin: 0;
+    font-family: Calistoga, serif;
+    font-size: 26px;
+    font-weight: 400;
+  }
+  .sub {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  form {
+    margin-top: 14px;
+    display: grid;
+    gap: 10px;
+  }
+  label {
+    display: grid;
+    gap: 5px;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  input, select {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font-size: 14px;
+    padding: 11px 12px;
+    outline: none;
+    background: #fff;
+  }
+  input:focus, select:focus {
+    border-color: #93c5fd;
+    box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.25);
+  }
+  button {
+    border: 0;
+    border-radius: 12px;
+    padding: 11px 14px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    background: linear-gradient(180deg, #f97316, var(--brand-2));
+    color: #111827;
+  }
+  .meta {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .error {
+    min-height: 18px;
+    color: #b91c1c;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .hint {
+    margin-top: 10px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 10px;
+    background: #f8fafc;
+    padding: 10px;
+    font-size: 12px;
+    color: #334155;
+  }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+</head>
+<body>
+  <section class="shell" aria-label="Login form">
+    <div class="brand">
+      <div class="logo">1C</div>
+      <div>
+        <h1>OneCounter</h1>
+        <p class="sub">Sign in to continue</p>
+      </div>
+    </div>
+
+    <form id="login-form">
+      <label>Email
+        <input id="email" type="email" required autocomplete="username" placeholder="owner@store.com" />
+      </label>
+      <label>Password
+        <input id="password" type="password" required autocomplete="current-password" placeholder="********" />
+      </label>
+      <label>Store
+        <select id="store">
+          <option value="store-main">Coimbatore Main</option>
+          <option value="store-north">Coimbatore North</option>
+          <option value="store-online">Online Fulfillment</option>
+        </select>
+      </label>
+      <button type="submit" id="submit-btn">Sign In</button>
+      <div class="error" id="error"></div>
+    </form>
+
+    <div class="hint">
+      Credentials are validated from the backend credential database.
+    </div>
+
+    <p class="meta" id="meta">Using mock auth unless Supabase URL + anon key are configured.</p>
+  </section>
+
+<script src="config.local.js"></script>
+<script>
+  const AUTH_KEYS = {
+    access: "onecounter_access_token",
+    refresh: "onecounter_refresh_token",
+    expiresAt: "onecounter_access_expires_at",
+    email: "onecounter_user_email",
+    sessionStart: "onecounter_session_start",
+    role: "onecounter_user_role"
+  };
+
+  const APP_CONFIG = {
+    apiBaseUrl: window.__ONECOUNTER_API_BASE_URL__ || "http://localhost:8787",
+    supabaseUrl: window.__ONECOUNTER_SUPABASE_URL__ || "",
+    supabaseAnonKey: window.__ONECOUNTER_SUPABASE_ANON_KEY__ || ""
+  };
+
+  function isSupabaseConfigured() {
+    return Boolean(APP_CONFIG.supabaseUrl && APP_CONFIG.supabaseAnonKey);
+  }
+
+  async function supabasePasswordLogin(email, password) {
+    const res = await fetch(`${APP_CONFIG.supabaseUrl}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: APP_CONFIG.supabaseAnonKey
+      },
+      body: JSON.stringify({ email, password })
+    });
+    if (!res.ok) throw new Error("Supabase login failed");
+    return res.json();
+  }
+
+  async function backendAuthLogin(email, password) {
+    const res = await fetch(`${APP_CONFIG.apiBaseUrl}/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "invalid_credentials");
+    }
+    return res.json();
+  }
+
+  function persistSession(payload, selectedStore) {
+    const expiresAtMs = Date.now() + (Number(payload.expires_in || 900) * 1000);
+    localStorage.setItem(AUTH_KEYS.access, payload.access_token || "");
+    localStorage.setItem(AUTH_KEYS.refresh, payload.refresh_token || "");
+    localStorage.setItem(AUTH_KEYS.expiresAt, String(expiresAtMs));
+    localStorage.setItem(AUTH_KEYS.email, payload.user?.email || "");
+    localStorage.setItem(AUTH_KEYS.role, payload.user?.role || "manager");
+    localStorage.setItem(AUTH_KEYS.sessionStart, String(Date.now()));
+    localStorage.setItem("onecounter_store_id", selectedStore);
+    localStorage.setItem("onecounter_role", payload.user?.role || "manager");
+  }
+
+  (function boot() {
+    const existing = localStorage.getItem(AUTH_KEYS.access) || "";
+    if (existing) {
+      window.location.replace("index.html");
+      return;
+    }
+    document.getElementById("meta").textContent = isSupabaseConfigured()
+      ? "Using Supabase Auth login."
+      : "Using local mock credential database.";
+  })();
+
+  document.getElementById("login-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const email = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+    const store = document.getElementById("store").value;
+    const errorEl = document.getElementById("error");
+    const submitBtn = document.getElementById("submit-btn");
+
+    errorEl.textContent = "";
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Signing in...";
+
+    try {
+      const payload = isSupabaseConfigured()
+        ? await supabasePasswordLogin(email, password)
+        : await backendAuthLogin(email, password);
+      if (!payload.user) payload.user = { email: email, role: "manager" };
+      persistSession(payload, store);
+      window.location.replace("index.html");
+    } catch (err) {
+      errorEl.textContent = err.message === "invalid_credentials"
+        ? "Invalid email or password."
+        : "Sign in failed. Check configuration and credentials.";
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Sign In";
+    }
+  });
+</script>
+</body>
+</html>

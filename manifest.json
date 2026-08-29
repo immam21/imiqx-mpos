@@ -1,0 +1,15 @@
+{
+  "name": "OneCounter — Retail Platform",
+  "short_name": "OneCounter",
+  "description": "Billing, inventory, and online store for your shop — one system, one stock count.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F8FAFC",
+  "theme_color": "#2563EB",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

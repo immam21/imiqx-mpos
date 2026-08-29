@@ -1,0 +1,1930 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>OneCounter SaaS Platform</title>
+<meta name="description" content="Unified POS, inventory, orders, customers, promotions, reports, and GST controls for multi-store retail teams." />
+<meta name="theme-color" content="#2563EB" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="OneCounter" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="icon.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Calistoga&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --color-primary: #2563EB;
+    --color-secondary: #3B82F6;
+    --color-accent: #EA580C;
+    --color-background: #F8FAFC;
+    --color-foreground: #1E293B;
+    --color-card: #FFFFFF;
+    --color-muted: #E9EFF8;
+    --color-muted-foreground: #475569;
+    --color-border: #E2E8F0;
+    --color-success: #15803D;
+    --color-warning: #B45309;
+    --color-danger: #DC2626;
+    --space-xs: 2px;
+    --space-sm: 4px;
+    --space-md: 8px;
+    --space-lg: 12px;
+    --space-xl: 16px;
+    --space-2xl: 24px;
+    --space-3xl: 32px;
+    --radius-sm: 10px;
+    --radius-md: 14px;
+    --radius-lg: 18px;
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+    --shadow-md: 0 8px 20px rgba(37, 99, 235, 0.09), 0 2px 8px rgba(15, 23, 42, 0.06);
+    --sidebar-width: 254px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: Inter, sans-serif;
+    color: var(--color-foreground);
+    background:
+      radial-gradient(1000px 400px at 85% -20%, rgba(59, 130, 246, 0.18), transparent 70%),
+      radial-gradient(700px 260px at 0% 10%, rgba(234, 88, 12, 0.10), transparent 70%),
+      linear-gradient(180deg, #F6FAFF 0%, var(--color-background) 60%);
+    min-height: 100vh;
+    overflow: hidden;
+    padding-top: env(safe-area-inset-top);
+  }
+  button, input, select { font-family: inherit; }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .mono { font-family: "JetBrains Mono", monospace; }
+  .display { font-family: Calistoga, serif; letter-spacing: 0.01em; }
+
+  .skip-link {
+    position: absolute;
+    left: -999px;
+    top: 0;
+    background: #0F172A;
+    color: #fff;
+    padding: 10px 14px;
+    border-radius: 0 0 10px 0;
+    z-index: 1000;
+  }
+  .skip-link:focus { left: 0; }
+
+  #app-shell {
+    display: flex;
+    height: 100vh;
+  }
+
+  .sidebar {
+    width: var(--sidebar-width);
+    background: linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.96));
+    color: #DCE5F4;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(16px);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 24px 18px 18px;
+  }
+  .brand-mark {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background: linear-gradient(140deg, var(--color-primary), var(--color-secondary));
+    color: #fff;
+    font-weight: 700;
+    display: grid;
+    place-items: center;
+    box-shadow: var(--shadow-md);
+  }
+  .brand-sub { color: #94A3B8; font-size: 11px; margin-top: 2px; }
+
+  .nav-list {
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .nav-btn {
+    border: 0;
+    background: transparent;
+    color: #AFBDD3;
+    border-radius: 10px;
+    padding: 11px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 180ms ease, color 180ms ease;
+  }
+  .nav-btn:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+  .nav-btn.active {
+    color: #fff;
+    background: linear-gradient(90deg, rgba(37, 99, 235, 0.24), rgba(59, 130, 246, 0.10));
+    border: 1px solid rgba(59, 130, 246, 0.34);
+  }
+
+  .role-card {
+    margin: 12px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(148, 163, 184, 0.26);
+    background: rgba(15, 23, 42, 0.42);
+    padding: 12px;
+  }
+  .role-card .label { color: #9FB0C8; font-size: 11px; }
+  .role-card .value { color: #F8FAFC; font-size: 12px; margin-top: 5px; }
+
+  .main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .topbar {
+    border-bottom: 1px solid var(--color-border);
+    background: rgba(248, 250, 252, 0.85);
+    backdrop-filter: blur(10px);
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .title-wrap h1 { margin: 0; font-size: 26px; font-weight: 400; line-height: 1.1; }
+  .title-wrap p { margin: 4px 0 0; color: var(--color-muted-foreground); font-size: 12px; }
+
+  .top-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 8px 10px;
+    color: var(--color-muted-foreground);
+  }
+  .field input {
+    border: 0;
+    outline: 0;
+    width: 220px;
+    font-size: 12.5px;
+    background: transparent;
+    color: var(--color-foreground);
+  }
+  .pill {
+    border-radius: 999px;
+    border: 1px solid #C7D6F3;
+    background: #EAF1FF;
+    color: #1D4ED8;
+    font-size: 11px;
+    padding: 7px 11px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .btn {
+    border-radius: 11px;
+    border: 1px solid var(--color-border);
+    background: var(--color-card);
+    color: var(--color-foreground);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: all 180ms ease;
+  }
+  .btn:hover { box-shadow: var(--shadow-sm); }
+  .btn:focus-visible, .nav-btn:focus-visible, .tab-btn:focus-visible {
+    outline: 2px solid #93C5FD;
+    outline-offset: 2px;
+  }
+  .btn.primary {
+    border-color: #C2410C;
+    background: linear-gradient(180deg, #F97316, var(--color-accent));
+    color: #111827;
+  }
+
+  .content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 18px 20px 90px;
+  }
+
+  .section {
+    margin-bottom: 16px;
+  }
+  .grid {
+    display: grid;
+    gap: 12px;
+  }
+  .kpi-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .two-col { grid-template-columns: 1.5fr 1fr; }
+  .three-col { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .four-col { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+  .card {
+    background: linear-gradient(160deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.74));
+    border: 1px solid rgba(226, 232, 240, 0.92);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    backdrop-filter: blur(14px);
+    padding: 14px;
+  }
+
+  .kpi-label { font-size: 11px; color: var(--color-muted-foreground); }
+  .kpi-value { font-size: 24px; font-weight: 700; margin-top: 8px; }
+  .kpi-trend { font-size: 11px; margin-top: 5px; }
+
+  .good { color: var(--color-success); }
+  .warn { color: var(--color-warning); }
+  .danger { color: var(--color-danger); }
+
+  .panel-title {
+    margin: 0 0 10px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+
+  .bars {
+    display: grid;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .bar-row {
+    display: grid;
+    grid-template-columns: 40px 1fr 50px;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--color-muted-foreground);
+  }
+  .bar-track {
+    height: 8px;
+    border-radius: 999px;
+    background: #E2E8F0;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--color-primary), var(--color-secondary));
+  }
+
+  .alert-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--color-border);
+    font-size: 12px;
+  }
+  .alert-row:last-child { border-bottom: 0; }
+
+  .chip {
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid var(--color-border);
+    background: #fff;
+    color: var(--color-muted-foreground);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .table-wrap { overflow-x: auto; }
+  table {
+    width: 100%;
+    min-width: 640px;
+    border-collapse: collapse;
+  }
+  thead th {
+    text-align: left;
+    font-size: 10.5px;
+    color: #64748B;
+    padding: 8px 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: #F8FAFC;
+  }
+  tbody td {
+    border-top: 1px solid var(--color-border);
+    padding: 10px;
+    font-size: 12.5px;
+    vertical-align: top;
+  }
+
+  .tabbar { display: flex; gap: 8px; margin-bottom: 10px; }
+  .tab-btn {
+    border-radius: 9px;
+    border: 1px solid var(--color-border);
+    background: #fff;
+    color: var(--color-muted-foreground);
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .tab-btn.active {
+    background: #EAF1FF;
+    border-color: #BDD0F7;
+    color: #1D4ED8;
+  }
+
+  .stepper {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .step {
+    border-radius: 9px;
+    border: 1px solid #C9DBFF;
+    background: #F1F6FF;
+    font-size: 11px;
+    padding: 8px;
+    text-align: center;
+    color: #1E40AF;
+  }
+  .step.active {
+    background: linear-gradient(90deg, #2563EB, #3B82F6);
+    border-color: #2563EB;
+    color: #fff;
+  }
+
+  #mobile-nav {
+    display: none;
+  }
+
+  #toast {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    background: #0F172A;
+    color: #fff;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 12px;
+    box-shadow: var(--shadow-md);
+    opacity: 0;
+    transform: translateY(12px);
+    pointer-events: none;
+    transition: opacity 220ms ease, transform 220ms ease;
+    z-index: 60;
+  }
+  #toast.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  #install-banner {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    z-index: 50;
+    display: none;
+    background: #0F172A;
+    color: #fff;
+    border-radius: 12px;
+    border: 1px solid #334155;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+  }
+  #install-banner.show { display: flex; }
+  #install-banner .meta { flex: 1; }
+  #install-banner .meta div:first-child { font-size: 12px; font-weight: 700; }
+  #install-banner .meta div:last-child { font-size: 11px; color: #B9C3D5; margin-top: 2px; }
+
+  .auth-meta {
+    font-size: 11px;
+    color: var(--color-muted-foreground);
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    background: rgba(15, 23, 42, 0.58);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal-card {
+    width: min(440px, 100%);
+    background: #fff;
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    box-shadow: var(--shadow-md);
+    padding: 14px;
+  }
+  .modal-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+  }
+  .auth-form {
+    margin-top: 10px;
+    display: grid;
+    gap: 8px;
+  }
+  .auth-form label {
+    font-size: 12px;
+    color: var(--color-muted-foreground);
+    display: grid;
+    gap: 5px;
+  }
+  .auth-form input {
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    padding: 10px;
+    font-size: 13px;
+  }
+  .modal-actions {
+    margin-top: 10px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .reveal {
+    animation: fade-up 360ms ease both;
+  }
+  .reveal:nth-child(2) { animation-delay: 40ms; }
+  .reveal:nth-child(3) { animation-delay: 80ms; }
+  .reveal:nth-child(4) { animation-delay: 120ms; }
+
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (max-width: 1180px) {
+    .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .two-col { grid-template-columns: 1fr; }
+    .three-col { grid-template-columns: 1fr 1fr; }
+  }
+
+  @media (max-width: 900px) {
+    .sidebar { display: none; }
+    .topbar { padding: 12px; }
+    .content { padding: 12px 12px 94px; }
+    .field input { width: 130px; }
+    .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .three-col, .four-col { grid-template-columns: 1fr; }
+
+    #mobile-nav {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 40;
+      display: flex;
+      background: rgba(255, 255, 255, 0.95);
+      border-top: 1px solid var(--color-border);
+      backdrop-filter: blur(10px);
+      padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+      overflow-x: auto;
+      gap: 2px;
+    }
+    .mnav-btn {
+      border: 0;
+      background: transparent;
+      color: #64748B;
+      font-size: 10px;
+      font-weight: 600;
+      border-radius: 9px;
+      min-width: 72px;
+      padding: 7px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: center;
+      cursor: pointer;
+    }
+    .mnav-btn.active { color: #1D4ED8; background: #EAF1FF; }
+    #install-banner { bottom: calc(74px + env(safe-area-inset-bottom)); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<a href="#view-root" class="skip-link">Skip to main content</a>
+<div id="app-shell">
+  <aside class="sidebar">
+    <div>
+      <div class="brand">
+        <div class="brand-mark">1C</div>
+        <div>
+          <div class="display" style="font-size: 18px;">OneCounter</div>
+          <div class="brand-sub mono">Retail OS + Commerce</div>
+        </div>
+      </div>
+      <nav id="sidebar-nav" class="nav-list" aria-label="Primary"></nav>
+    </div>
+    <div class="role-card">
+      <div class="label mono">ACTIVE ROLE</div>
+      <div class="value">Store Manager</div>
+      <div class="label" style="margin-top: 8px;">Session timeout: 30 min idle</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="title-wrap">
+        <h1 id="view-title" class="display">Dashboard</h1>
+        <p id="view-subtitle">Revenue, operations, compliance, and growth in one console</p>
+      </div>
+      <div class="top-actions">
+        <label class="field" aria-label="Store selector">
+          <span aria-hidden="true">Store</span>
+          <select id="store-select">
+            <option value="store-main">Coimbatore Main</option>
+            <option value="store-north">Coimbatore North</option>
+            <option value="store-online">Online Fulfillment</option>
+          </select>
+        </label>
+        <label class="field" aria-label="Role selector">
+          <span aria-hidden="true">Role</span>
+          <select id="role-select">
+            <option value="cashier">Cashier</option>
+            <option value="manager" selected>Manager</option>
+            <option value="admin">Admin</option>
+          </select>
+        </label>
+        <div class="auth-meta" id="auth-status">Not signed in</div>
+        <button class="btn" type="button" id="auth-toggle">Login</button>
+        <label class="field" aria-label="Universal search">
+          <span aria-hidden="true">Search</span>
+          <input type="search" id="global-search" placeholder="SKU, order, customer..." />
+        </label>
+        <button class="btn" type="button" data-qa="sale">New Sale</button>
+        <button class="btn" type="button" data-qa="po">New PO</button>
+        <button class="btn primary" type="button" data-qa="campaign">New Campaign</button>
+      </div>
+    </header>
+    <section id="view-root" class="content" tabindex="-1"></section>
+  </main>
+</div>
+<nav id="mobile-nav" aria-label="Mobile navigation"></nav>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<div id="install-banner" role="region" aria-label="Install app prompt">
+  <div class="meta">
+    <div>Install OneCounter</div>
+    <div>Use the app offline for POS and quick operations.</div>
+  </div>
+  <button id="install-dismiss" class="btn" type="button">Later</button>
+  <button id="install-now" class="btn primary" type="button">Install</button>
+</div>
+
+<div id="auth-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
+  <div class="modal-card">
+    <h2 id="auth-modal-title" class="modal-title">Sign in</h2>
+    <p style="font-size:12px; color:var(--color-muted-foreground); margin:6px 0 0;">Use Supabase email/password auth. If Supabase is not configured, mock auth is used.</p>
+    <form id="auth-form" class="auth-form">
+      <label>Email
+        <input id="auth-email" type="email" autocomplete="username" required placeholder="owner@store.com" />
+      </label>
+      <label>Password
+        <input id="auth-password" type="password" autocomplete="current-password" required placeholder="********" />
+      </label>
+      <div class="modal-actions">
+        <button id="auth-cancel" class="btn" type="button">Cancel</button>
+        <button class="btn primary" type="submit">Sign In</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="config.local.js"></script>
+<script>
+  const money = (n) => "\u20B9" + n.toLocaleString("en-IN");
+
+  const APP_CONFIG = {
+    apiBaseUrl: window.__ONECOUNTER_API_BASE_URL__ || "http://localhost:8787",
+    storeId: window.__ONECOUNTER_STORE_ID__ || "store-main",
+    businessId: window.__ONECOUNTER_BUSINESS_ID__ || "business-main",
+    supabaseUrl: window.__ONECOUNTER_SUPABASE_URL__ || "",
+    supabaseAnonKey: window.__ONECOUNTER_SUPABASE_ANON_KEY__ || ""
+  };
+
+  const API_ENDPOINTS = {
+    authLogin: "/v1/auth/login",
+    authRefresh: "/v1/auth/refresh",
+    authLogout: "/v1/auth/logout",
+    dashboard: "/v1/reports/dashboard",
+    orders: "/v1/orders",
+    orderVoid: "/v1/orders/void",
+    orderReprint: "/v1/orders/reprint",
+    inventory: "/v1/inventory/products",
+    inventoryLedger: "/v1/inventory/ledger",
+    labelPrint: "/v1/inventory/labels/print",
+    customers: "/v1/customers",
+    promotions: "/v1/promotions/campaigns",
+    reports: "/v1/reports/tax-summary",
+    topProducts: "/v1/reports/top-products",
+    reconciliation: "/v1/reports/reconciliation",
+    integrations: "/v1/integrations/status",
+    whatsappEvents: "/v1/integrations/whatsapp/events",
+    whatsappReceipt: "/v1/integrations/whatsapp/send-receipt",
+    settings: "/v1/business/setup",
+    onlineStore: "/v1/storefront/placeholder",
+    posSales: "/v1/pos/sales"
+  };
+
+  // Reference mapping from platform-overview entities to UI modules.
+  const MODULE_ENTITY_MAP = {
+    dashboard: ["sales", "payments", "inventory_ledger", "webhook_logs"],
+    pos: ["sales", "sale_items", "payments", "customers"],
+    orders: ["sales", "refunds", "customers"],
+    inventory: ["products", "inventory_ledger", "purchase_orders", "suppliers"],
+    customers: ["customers", "segments", "campaign_events"],
+    promotions: ["campaigns", "campaign_events", "customers"],
+    reports: ["sales", "payments", "tax_profiles", "invoices"],
+    integrations: ["integrations", "webhook_logs", "audit_logs"],
+    settings: ["businesses", "stores", "users", "roles", "invoice_series"]
+  };
+
+  const POS_CART = [
+    ["Tata Salt 1kg", "TS-1KG", 2, 28],
+    ["Aashirvaad Atta 5kg", "AA-5KG", 1, 265],
+    ["Amul Milk 500ml", "AM-500", 4, 27],
+    ["Good Day Biscuit", "GD-100", 2, 30]
+  ];
+
+  const appState = {
+    activeTab: "dashboard",
+    loaded: {},
+    currentStoreId: localStorage.getItem("onecounter_store_id") || APP_CONFIG.storeId,
+    currentRole: localStorage.getItem("onecounter_role") || "manager",
+    dashboard: null,
+    orders: null,
+    inventory: null,
+    inventoryLedger: null,
+    customers: null,
+    promotions: null,
+    reports: null,
+    topProducts: null,
+    reconciliation: null,
+    integrations: null,
+    whatsappEvents: null,
+    settings: null,
+    storefront: null
+  };
+
+  const AUTH_KEYS = {
+    access: "onecounter_access_token",
+    refresh: "onecounter_refresh_token",
+    expiresAt: "onecounter_access_expires_at",
+    email: "onecounter_user_email",
+    sessionStart: "onecounter_session_start",
+    role: "onecounter_user_role"
+  };
+
+  const authState = {
+    accessToken: "",
+    refreshToken: "",
+    expiresAtMs: 0,
+    userEmail: "",
+    role: "manager",
+    sessionStartedAtMs: 0,
+    lastActivityAtMs: 0
+  };
+
+  let refreshTimer = null;
+  let idleCheckTimer = null;
+  let absoluteTimer = null;
+
+  function isSupabaseConfigured() {
+    return Boolean(APP_CONFIG.supabaseUrl && APP_CONFIG.supabaseAnonKey);
+  }
+
+  function persistAuth() {
+    localStorage.setItem(AUTH_KEYS.access, authState.accessToken || "");
+    localStorage.setItem(AUTH_KEYS.refresh, authState.refreshToken || "");
+    localStorage.setItem(AUTH_KEYS.expiresAt, String(authState.expiresAtMs || 0));
+    localStorage.setItem(AUTH_KEYS.email, authState.userEmail || "");
+    localStorage.setItem(AUTH_KEYS.role, authState.role || "manager");
+    localStorage.setItem(AUTH_KEYS.sessionStart, String(authState.sessionStartedAtMs || 0));
+  }
+
+  function loadAuthFromStorage() {
+    authState.accessToken = localStorage.getItem(AUTH_KEYS.access) || "";
+    authState.refreshToken = localStorage.getItem(AUTH_KEYS.refresh) || "";
+    authState.expiresAtMs = Number(localStorage.getItem(AUTH_KEYS.expiresAt) || "0");
+    authState.userEmail = localStorage.getItem(AUTH_KEYS.email) || "";
+    authState.role = localStorage.getItem(AUTH_KEYS.role) || appState.currentRole;
+    authState.sessionStartedAtMs = Number(localStorage.getItem(AUTH_KEYS.sessionStart) || "0");
+    authState.lastActivityAtMs = Date.now();
+  }
+
+  function clearAuthSession() {
+    authState.accessToken = "";
+    authState.refreshToken = "";
+    authState.expiresAtMs = 0;
+    authState.userEmail = "";
+    persistAuth();
+    if (refreshTimer) {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = null;
+    }
+    if (idleCheckTimer) {
+      window.clearInterval(idleCheckTimer);
+      idleCheckTimer = null;
+    }
+    if (absoluteTimer) {
+      window.clearTimeout(absoluteTimer);
+      absoluteTimer = null;
+    }
+  }
+
+  function setAuthSession(payload) {
+    authState.accessToken = payload.access_token || "";
+    authState.refreshToken = payload.refresh_token || authState.refreshToken;
+    authState.expiresAtMs = Date.now() + (Number(payload.expires_in || 900) * 1000);
+    authState.userEmail = payload.user?.email || authState.userEmail || "";
+    authState.role = payload.user?.role || authState.role || appState.currentRole;
+    authState.sessionStartedAtMs = Date.now();
+    authState.lastActivityAtMs = Date.now();
+    persistAuth();
+    scheduleTokenRefresh();
+    scheduleSessionTimeouts();
+  }
+
+  function getRoleTimeoutsMinutes(role) {
+    if (role === "cashier") return { idle: 15, absoluteHours: 8 };
+    if (role === "admin") return { idle: 30, absoluteHours: 12 };
+    return { idle: 30, absoluteHours: 10 };
+  }
+
+  function recordUserActivity() {
+    authState.lastActivityAtMs = Date.now();
+  }
+
+  function scheduleSessionTimeouts() {
+    if (idleCheckTimer) {
+      window.clearInterval(idleCheckTimer);
+      idleCheckTimer = null;
+    }
+    if (absoluteTimer) {
+      window.clearTimeout(absoluteTimer);
+      absoluteTimer = null;
+    }
+    if (!authState.accessToken) {
+      return;
+    }
+
+    const cfg = getRoleTimeoutsMinutes(authState.role);
+    const idleMs = cfg.idle * 60 * 1000;
+    const absoluteMs = cfg.absoluteHours * 60 * 60 * 1000;
+
+    idleCheckTimer = window.setInterval(() => {
+      if (!authState.accessToken) {
+        return;
+      }
+      if ((Date.now() - authState.lastActivityAtMs) >= idleMs) {
+        clearAuthSession();
+        updateAuthUi();
+        showToast("Session expired due to inactivity");
+        window.setTimeout(() => window.location.replace("login.html?reason=idle"), 300);
+      }
+    }, 15000);
+
+    const startAt = authState.sessionStartedAtMs || Date.now();
+    const remainingAbsoluteMs = Math.max(1000, absoluteMs - (Date.now() - startAt));
+    absoluteTimer = window.setTimeout(() => {
+      clearAuthSession();
+      updateAuthUi();
+      showToast("Session ended. Please sign in again.");
+      window.setTimeout(() => window.location.replace("login.html?reason=expired"), 300);
+    }, remainingAbsoluteMs);
+  }
+
+  function redirectToLogin(reason) {
+    window.location.replace(`login.html?reason=${encodeURIComponent(reason || "required")}`);
+  }
+
+  async function ensureAuthenticatedSession() {
+    if (!authState.accessToken) {
+      redirectToLogin("required");
+      return false;
+    }
+
+    // Session is present but expired: require a successful refresh before app access.
+    if (Date.now() >= (authState.expiresAtMs - 5000)) {
+      try {
+        await refreshAccessToken();
+      } catch (_) {
+        clearAuthSession();
+        updateAuthUi();
+        redirectToLogin("expired");
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function scheduleTokenRefresh() {
+    if (refreshTimer) {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = null;
+    }
+    if (!authState.refreshToken || !authState.expiresAtMs) {
+      return;
+    }
+
+    const refreshInMs = Math.max(10000, authState.expiresAtMs - Date.now() - 60000);
+    refreshTimer = window.setTimeout(async () => {
+      try {
+        await refreshAccessToken();
+      } catch (_) {
+        clearAuthSession();
+        updateAuthUi();
+      }
+    }, refreshInMs);
+  }
+
+  async function supabasePasswordLogin(email, password) {
+    const res = await fetch(`${APP_CONFIG.supabaseUrl}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: APP_CONFIG.supabaseAnonKey
+      },
+      body: JSON.stringify({ email, password })
+    });
+
+    if (!res.ok) {
+      throw new Error("Supabase login failed");
+    }
+    return res.json();
+  }
+
+  async function supabaseRefresh(refreshToken) {
+    const res = await fetch(`${APP_CONFIG.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: APP_CONFIG.supabaseAnonKey
+      },
+      body: JSON.stringify({ refresh_token: refreshToken })
+    });
+
+    if (!res.ok) {
+      throw new Error("Supabase refresh failed");
+    }
+    return res.json();
+  }
+
+  async function supabaseLogout(accessToken) {
+    await fetch(`${APP_CONFIG.supabaseUrl}/auth/v1/logout`, {
+      method: "POST",
+      headers: {
+        apikey: APP_CONFIG.supabaseAnonKey,
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+  }
+
+  async function backendAuthLogin(email, password) {
+    const res = await fetch(`${APP_CONFIG.apiBaseUrl}${API_ENDPOINTS.authLogin}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password })
+    });
+    if (!res.ok) {
+      throw new Error("Mock login failed");
+    }
+    return res.json();
+  }
+
+  async function backendAuthRefresh(refreshToken) {
+    const res = await fetch(`${APP_CONFIG.apiBaseUrl}${API_ENDPOINTS.authRefresh}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken })
+    });
+    if (!res.ok) {
+      throw new Error("Mock refresh failed");
+    }
+    return res.json();
+  }
+
+  async function backendAuthLogout(refreshToken) {
+    await fetch(`${APP_CONFIG.apiBaseUrl}${API_ENDPOINTS.authLogout}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken })
+    });
+  }
+
+  async function refreshAccessToken() {
+    if (!authState.refreshToken) {
+      throw new Error("No refresh token available");
+    }
+    const payload = isSupabaseConfigured()
+      ? await supabaseRefresh(authState.refreshToken)
+      : await backendAuthRefresh(authState.refreshToken);
+    setAuthSession(payload);
+    return payload.access_token;
+  }
+
+  async function ensureValidAccessToken() {
+    if (!authState.accessToken) {
+      return "";
+    }
+    if (Date.now() < (authState.expiresAtMs - 60000)) {
+      return authState.accessToken;
+    }
+    return refreshAccessToken();
+  }
+
+  function updateAuthUi() {
+    const authStatus = document.getElementById("auth-status");
+    const authToggle = document.getElementById("auth-toggle");
+    const isLoggedIn = Boolean(authState.accessToken);
+
+    authStatus.textContent = isLoggedIn
+      ? (authState.userEmail || "Authenticated")
+      : "Not signed in";
+    authToggle.textContent = isLoggedIn ? "Logout" : "Login";
+  }
+
+  function getAccessToken() {
+    return authState.accessToken;
+  }
+
+  async function apiFetch(path, options = {}) {
+    const token = await ensureValidAccessToken();
+    const headers = {
+      "Content-Type": "application/json",
+      "X-Store-Id": appState.currentStoreId,
+      "X-Business-Id": APP_CONFIG.businessId,
+      ...(options.headers || {})
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    let res = await fetch(`${APP_CONFIG.apiBaseUrl}${path}`, {
+      ...options,
+      headers
+    });
+
+    if (res.status === 401 && authState.refreshToken) {
+      const renewedToken = await refreshAccessToken();
+      headers.Authorization = `Bearer ${renewedToken}`;
+      res = await fetch(`${APP_CONFIG.apiBaseUrl}${path}`, {
+        ...options,
+        headers
+      });
+    }
+
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(txt || `API request failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  async function hydrateTabData(tabId) {
+    if (appState.loaded[tabId] || tabId === "pos") {
+      return;
+    }
+
+    try {
+      if (tabId === "dashboard") appState.dashboard = await apiFetch(API_ENDPOINTS.dashboard);
+      if (tabId === "orders") appState.orders = await apiFetch(API_ENDPOINTS.orders);
+      if (tabId === "inventory") {
+        appState.inventory = await apiFetch(API_ENDPOINTS.inventory);
+        appState.inventoryLedger = await apiFetch(API_ENDPOINTS.inventoryLedger);
+      }
+      if (tabId === "customers") appState.customers = await apiFetch(API_ENDPOINTS.customers);
+      if (tabId === "promotions") appState.promotions = await apiFetch(API_ENDPOINTS.promotions);
+      if (tabId === "reports") {
+        appState.reports = await apiFetch(API_ENDPOINTS.reports);
+        appState.topProducts = await apiFetch(API_ENDPOINTS.topProducts);
+        appState.reconciliation = await apiFetch(API_ENDPOINTS.reconciliation);
+      }
+      if (tabId === "integrations") {
+        appState.integrations = await apiFetch(API_ENDPOINTS.integrations);
+        appState.whatsappEvents = await apiFetch(API_ENDPOINTS.whatsappEvents);
+      }
+      if (tabId === "settings") appState.settings = await apiFetch(API_ENDPOINTS.settings);
+      if (tabId === "store") appState.storefront = await apiFetch(API_ENDPOINTS.onlineStore);
+      appState.loaded[tabId] = true;
+    } catch (_) {
+      appState.loaded[tabId] = false;
+    }
+  }
+
+  async function submitPosSale() {
+    const subtotal = POS_CART.reduce((acc, row) => acc + (row[2] * row[3]), 0);
+    const taxAmount = Math.round(subtotal * 0.05);
+    const discountAmount = 35;
+    const totalAmount = subtotal + taxAmount - discountAmount;
+
+    const payload = {
+      store_id: appState.currentStoreId,
+      business_id: APP_CONFIG.businessId,
+      channel: "in_store",
+      customer: { id: null, name: "Walk-in" },
+      status: "paid",
+      items: POS_CART.map((row) => ({
+        name: row[0],
+        sku: row[1],
+        quantity: row[2],
+        unit_price: row[3],
+        line_total: row[2] * row[3]
+      })),
+      totals: {
+        subtotal,
+        tax_amount: taxAmount,
+        discount_amount: discountAmount,
+        total_amount: totalAmount
+      },
+      payments: [
+        { mode: "cash", amount: 300 },
+        { mode: "upi", amount: 458 },
+        { mode: "card", amount: totalAmount - 758 }
+      ],
+      metadata: {
+        source: "pwa-pos",
+        created_at: new Date().toISOString()
+      }
+    };
+
+    try {
+      const data = await apiFetch(API_ENDPOINTS.posSales, {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      showToast(`Sale posted: ${data.sale_id || "created"}`);
+      return;
+    } catch (_) {
+      showToast("Network issue: request sent to service-worker queue");
+    }
+  }
+
+  async function voidOrder(orderNo) {
+    if (!orderNo) return;
+    const reason = window.prompt(`Enter void reason for ${orderNo}`);
+    if (!reason || !reason.trim()) {
+      showToast("Void cancelled: reason required");
+      return;
+    }
+    try {
+      await apiFetch(API_ENDPOINTS.orderVoid, {
+        method: "POST",
+        body: JSON.stringify({ order_no: orderNo, reason: reason.trim() })
+      });
+      showToast(`Order voided: ${orderNo}`);
+      appState.loaded.orders = false;
+      if (appState.activeTab === "orders") setActive("orders");
+    } catch (_) {
+      showToast("Unable to void order");
+    }
+  }
+
+  async function reprintOrder(orderNo) {
+    if (!orderNo) return;
+    try {
+      await apiFetch(API_ENDPOINTS.orderReprint, {
+        method: "POST",
+        body: JSON.stringify({ order_no: orderNo })
+      });
+      showToast(`Reprint requested: ${orderNo}`);
+    } catch (_) {
+      showToast("Unable to queue reprint");
+    }
+  }
+
+  async function sendWhatsAppReceipt() {
+    try {
+      await apiFetch(API_ENDPOINTS.whatsappReceipt, {
+        method: "POST",
+        body: JSON.stringify({
+          phone: "+919999999999",
+          reference_id: `SALE-${Date.now()}`,
+          template: "RECEIPT_V1"
+        })
+      });
+      showToast("Receipt pushed to WhatsApp");
+      appState.loaded.integrations = false;
+    } catch (_) {
+      showToast("Receipt dispatch failed");
+    }
+  }
+
+  async function printLabels() {
+    const startSku = document.getElementById("label-start-sku")?.value?.trim() || "";
+    const endSku = document.getElementById("label-end-sku")?.value?.trim() || startSku;
+    const copies = Number(document.getElementById("label-copies")?.value || "1");
+    try {
+      const data = await apiFetch(API_ENDPOINTS.labelPrint, {
+        method: "POST",
+        body: JSON.stringify({ start_sku: startSku, end_sku: endSku, copies })
+      });
+      showToast(`Label job created: ${data.job_id || "queued"}`);
+    } catch (_) {
+      showToast("Label print failed");
+    }
+  }
+
+  const NAV = [
+    { id: "dashboard", label: "Dashboard", short: "Home" },
+    { id: "pos", label: "POS", short: "POS" },
+    { id: "orders", label: "Orders", short: "Orders" },
+    { id: "inventory", label: "Inventory", short: "Stock" },
+    { id: "store", label: "Online Store", short: "Store" },
+    { id: "customers", label: "Customers", short: "Cust" },
+    { id: "promotions", label: "Promotions", short: "Promo" },
+    { id: "reports", label: "Reports", short: "Reports" },
+    { id: "integrations", label: "Integrations", short: "Links" },
+    { id: "settings", label: "Settings", short: "Setup" }
+  ];
+
+  const TITLES = {
+    dashboard: ["Dashboard", "Revenue, operations, compliance, and growth in one console"],
+    pos: ["POS", "Counter-optimized checkout with hold, park, and split payments"],
+    orders: ["Orders", "Unified in-store and online order lifecycle"],
+    inventory: ["Inventory", "Warehouse-aware stock ledger and procurement"],
+    store: ["Online Store", "Customer-facing storefront connected to live stock"],
+    customers: ["Customers", "Segments, RFM context, and customer timeline"],
+    promotions: ["Promotions", "Audience, offer, channel, schedule, approval workflow"],
+    reports: ["Reports", "Sales, tax, cash variance, and margin reconciliation"],
+    integrations: ["Integrations", "WhatsApp, Sheets, webhooks, and sync health"],
+    settings: ["Settings", "Business profile, GST rules, RBAC, and session controls"]
+  };
+
+  const page = {
+    dashboard() {
+      const dashboardData = appState.dashboard || {};
+      const kpi = dashboardData.kpis || {
+        revenue_today: 341620,
+        orders_today: 284,
+        aov: 1203,
+        low_stock_skus: 19,
+        failed_sync_alerts: 2
+      };
+      const days = dashboardData.trend || [
+        ["Mon", 56], ["Tue", 62], ["Wed", 48], ["Thu", 71], ["Fri", 82], ["Sat", 91], ["Sun", 77]
+      ];
+      const alerts = dashboardData.alerts || [
+        "Low stock: Amul Butter 500g at Warehouse B",
+        "Cashier variance exceeds threshold at Counter 2",
+        "WhatsApp callback failed 2 times",
+        "GSTR export scheduled at 23:30"
+      ];
+      return `
+        <div class="section grid kpi-grid">
+          <article class="card reveal"><div class="kpi-label">Revenue today</div><div class="kpi-value mono">${money(kpi.revenue_today)}</div><div class="kpi-trend good mono">+12.4% d/d</div></article>
+          <article class="card reveal"><div class="kpi-label">Orders</div><div class="kpi-value mono">${kpi.orders_today}</div><div class="kpi-trend good mono">+31 online</div></article>
+          <article class="card reveal"><div class="kpi-label">Average order value</div><div class="kpi-value mono">${money(kpi.aov)}</div><div class="kpi-trend warn mono">-2.1% w/w</div></article>
+          <article class="card reveal"><div class="kpi-label">Low stock SKUs</div><div class="kpi-value mono">${kpi.low_stock_skus}</div><div class="kpi-trend warn mono">7 critical</div></article>
+          <article class="card reveal"><div class="kpi-label">Failed sync alerts</div><div class="kpi-value mono">${kpi.failed_sync_alerts}</div><div class="kpi-trend danger mono">Webhook retries pending</div></article>
+        </div>
+
+        <div class="section grid two-col">
+          <article class="card reveal">
+            <h3 class="panel-title">7-Day Sales Trend</h3>
+            <div class="bars">
+              ${days.map((d) => `<div class="bar-row"><div class="mono">${d[0]}</div><div class="bar-track"><div class="bar-fill" style="width:${d[1]}%"></div></div><div class="mono">${d[1]}k</div></div>`).join("")}
+            </div>
+            <div style="margin-top: 10px; font-size: 11px; color: var(--color-muted-foreground);">p95 POS item add latency: 128ms | API read p95: 276ms</div>
+          </article>
+
+          <article class="card reveal">
+            <h3 class="panel-title">Alert Lane</h3>
+            ${alerts.map((message, idx) => `<div class="alert-row"><span>${message}</span><span class="chip ${idx === 1 ? "danger" : idx === 0 ? "warn" : idx === 3 ? "good" : ""}">${idx === 0 ? "Reorder" : idx === 1 ? "Review" : idx === 2 ? "Retry queued" : "Ready"}</span></div>`).join("")}
+          </article>
+        </div>
+      `;
+    },
+
+    pos() {
+      const items = POS_CART;
+      const subtotal = items.reduce((a, i) => a + (i[2] * i[3]), 0);
+      const tax = Math.round(subtotal * 0.05);
+      const discount = 35;
+      const total = subtotal + tax - discount;
+      return `
+        <div class="section card reveal">
+          <div class="grid four-col">
+            <label class="field" style="grid-column: span 2;"><span aria-hidden="true">Scan</span><input id="barcode-input" type="text" inputmode="numeric" placeholder="Barcode / product search" /></label>
+            <button class="btn" type="button" data-action="scan-camera">Scan by Camera</button>
+            <button class="btn" type="button">Hold Cart (F4)</button>
+            <button class="btn" type="button">Park Bill (F6)</button>
+          </div>
+          <input id="camera-scan-input" class="sr-only" type="file" accept="image/*" capture="environment" />
+          <div style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px;">
+            <span class="chip">Groceries</span><span class="chip">Dairy</span><span class="chip">Home Care</span><span class="chip">Snacks</span>
+          </div>
+        </div>
+
+        <div class="section grid two-col">
+          <article class="card reveal">
+            <h3 class="panel-title">Current Cart</h3>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Item</th><th>SKU</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
+                <tbody>
+                  ${items.map((i) => `<tr><td>${i[0]}</td><td class="mono">${i[1]}</td><td class="mono">${i[2]}</td><td class="mono">${money(i[3])}</td><td class="mono">${money(i[2] * i[3])}</td></tr>`).join("")}
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="card reveal">
+            <h3 class="panel-title">Payment Split</h3>
+            <div class="mono" style="font-size: 12px; display: grid; gap: 6px;">
+              <div style="display:flex; justify-content:space-between;"><span>Subtotal</span><span>${money(subtotal)}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>GST (5%)</span><span>${money(tax)}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>Coupon</span><span class="good">-${money(discount)}</span></div>
+            </div>
+            <div style="margin: 10px 0; border-top: 1px dashed var(--color-border); padding-top: 10px; display:flex; justify-content:space-between;">
+              <strong>Total Payable</strong><strong class="mono">${money(total)}</strong>
+            </div>
+            <div style="display:flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+              <span class="chip">Cash ${money(300)}</span><span class="chip">UPI ${money(458)}</span><span class="chip">Card ${money(total - 758)}</span>
+            </div>
+            <div class="grid four-col">
+              <button class="btn" type="button">Attach Customer</button>
+              <button class="btn" type="button" data-action="print-receipt">Print Receipt</button>
+              <button class="btn" type="button" data-action="send-receipt">Send WhatsApp Receipt</button>
+              <button class="btn primary" type="button" data-action="submit-sale">Receive Payment</button>
+            </div>
+          </article>
+        </div>
+      `;
+    },
+
+    orders() {
+      const fallbackRows = [
+        ["ORD-10018", "Online", "Priya S", money(1450), "Created"],
+        ["ORD-10017", "In-Store", "Walk-in", money(962), "Paid"],
+        ["ORD-10016", "Online", "Rahul K", money(780), "Packed"],
+        ["ORD-10015", "Online", "Meena R", money(1340), "Shipped"],
+        ["ORD-10014", "Online", "Suresh B", money(560), "Delivered"],
+        ["ORD-10013", "In-Store", "Walk-in", money(420), "Returned"]
+      ];
+      const rows = Array.isArray(appState.orders && appState.orders.items)
+        ? appState.orders.items.map((it) => [
+          it.order_no,
+          it.channel,
+          it.customer_name,
+          money(it.total_amount || 0),
+          it.status
+        ])
+        : fallbackRows;
+      const tone = {
+        Created: "",
+        Paid: "good",
+        Packed: "",
+        Shipped: "",
+        Delivered: "good",
+        Returned: "danger"
+      };
+      return `
+        <div class="section card reveal">
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <span class="chip">Created 23</span><span class="chip">Paid 118</span><span class="chip">Packed 36</span><span class="chip">Shipped 42</span><span class="chip">Delivered 302</span><span class="chip">Returned 9</span>
+          </div>
+        </div>
+        <article class="card reveal">
+          <h3 class="panel-title">Unified Fulfillment Queue</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Order</th><th>Channel</th><th>Customer</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
+              <tbody>
+                ${rows.map((r) => `<tr><td class="mono">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td class="mono">${r[3]}</td><td><span class="chip ${tone[r[4]]}">${r[4]}</span></td><td style="display:flex; gap:6px;"><button class="btn" type="button" data-action="reprint-order" data-order="${r[0]}">Reprint</button><button class="btn" type="button" data-action="void-order" data-order="${r[0]}">Void</button></td></tr>`).join("")}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      `;
+    },
+
+    inventory() {
+      const inventoryData = appState.inventory || { products: [] };
+      const ledgerData = appState.inventoryLedger || { entries: [] };
+      return `
+        <div class="section card reveal">
+          <h3 style="margin:0 0 10px;">Live Stock Snapshot</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>SKU</th><th>Name</th><th>Available</th><th>Reorder</th><th>Location</th><th>Status</th></tr></thead>
+              <tbody>
+                ${(inventoryData.products || []).map((p) => {
+                  const cls = Number(p.qty) <= Number(p.reorder_level) ? "warn" : "good";
+                  return `<tr><td class="mono">${p.sku}</td><td>${p.name}</td><td>${p.qty}</td><td>${p.reorder_level}</td><td>${p.location || "Store"}</td><td><span class="chip ${cls}">${Number(p.qty) <= Number(p.reorder_level) ? "Low" : "Healthy"}</span></td></tr>`;
+                }).join("") || `<tr><td colspan="6">No stock data.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="section card reveal">
+          <h3 style="margin:0 0 10px;">Barcode Labels</h3>
+          <div class="grid four-col">
+            <label class="field"><span aria-hidden="true">Start SKU</span><input id="label-start-sku" type="text" value="TS-1KG" /></label>
+            <label class="field"><span aria-hidden="true">End SKU</span><input id="label-end-sku" type="text" value="AMB-500" /></label>
+            <label class="field"><span aria-hidden="true">Copies</span><input id="label-copies" type="number" min="1" max="20" value="2" /></label>
+            <button class="btn primary" type="button" data-action="print-labels">Generate & Print</button>
+          </div>
+        </div>
+
+        <div class="section card reveal">
+          <h3 style="margin:0 0 10px;">Stock Ledger</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>SKU</th><th>Direction</th><th>Qty</th><th>Source</th><th>Ref</th></tr></thead>
+              <tbody>
+                ${(ledgerData.entries || []).slice(0, 12).map((e) => `<tr><td class="mono">${new Date(e.timestamp).toLocaleString()}</td><td class="mono">${e.sku}</td><td>${e.direction}</td><td>${e.qty}</td><td>${e.source}</td><td class="mono">${e.reference_id}</td></tr>`).join("") || `<tr><td colspan="6">No ledger entries.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    },
+
+    customers() {
+      const cData = appState.customers || { items: [] };
+      const customers = cData.items || [];
+      const segmentCount = customers.reduce((acc, c) => {
+        const key = c.segment || "Unclassified";
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+      const segmentChips = Object.keys(segmentCount).length
+        ? Object.entries(segmentCount).map(([name, count]) => `<span class="chip">${name} ${count}</span>`).join("")
+        : `<span class="chip">No customer records</span>`;
+
+      return `
+        <div class="tabbar">
+          <button class="tab-btn active" data-subtab="segments" type="button">Segments</button>
+          <button class="tab-btn" data-subtab="timeline" type="button">Customer Timeline</button>
+        </div>
+
+        <div id="sub-segments">
+          <div class="section card reveal">
+            <h3 class="panel-title">RFM Segmentation</h3>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+              ${segmentChips}
+            </div>
+            <button class="btn primary" type="button" data-goto="promotions">Create Promotion Campaign</button>
+          </div>
+
+          <article class="card reveal">
+            <h3 class="panel-title">Customer Records</h3>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>ID</th><th>Name</th><th>Segment</th></tr></thead>
+                <tbody>
+                  ${customers.map((c) => `<tr><td class="mono">${c.id}</td><td>${c.name || "-"}</td><td>${c.segment || "-"}</td></tr>`).join("") || `<tr><td colspan="3">No customers.</td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+
+        <div id="sub-timeline" style="display:none;">
+          <article class="card reveal">
+            <h3 class="panel-title">Customer 360 Timeline (Priya S)</h3>
+            <div class="alert-row"><span>Order ORD-10018 placed via storefront</span><span class="mono">09:42</span></div>
+            <div class="alert-row"><span>WhatsApp receipt delivered</span><span class="mono">09:43</span></div>
+            <div class="alert-row"><span>Support note: preferred evening delivery</span><span class="mono">09:49</span></div>
+            <div class="alert-row"><span>Outstanding balance cleared by UPI</span><span class="mono">10:02</span></div>
+          </article>
+        </div>
+      `;
+    },
+
+    promotions() {
+      const pData = appState.promotions || { items: [] };
+      const campaigns = pData.items || [];
+      return `
+        <div class="section card reveal">
+          <div class="stepper">
+            <div class="step active">1 Audience</div>
+            <div class="step">2 Offer Rules</div>
+            <div class="step">3 Channel</div>
+            <div class="step">4 Schedule</div>
+            <div class="step">5 Approval</div>
+          </div>
+          <div class="grid two-col">
+            <div>
+              <h3 class="panel-title">Audience + Offer Builder</h3>
+              <div style="display:grid; gap:8px;">
+                <label class="field"><span>Segment</span><input value="Dormant 60d + High Value" /></label>
+                <label class="field"><span>Offer</span><input value="15% off on grocery basket above Rs 999" /></label>
+                <label class="field"><span>Channel</span><input value="WhatsApp Template: FESTIVE_15" /></label>
+                <label class="field"><span>Schedule</span><input value="2026-08-30 18:00" /></label>
+              </div>
+            </div>
+            <div>
+              <h3 class="panel-title">Projected Reach & Cost</h3>
+              <div class="card" style="padding:10px; background:#F8FAFC;">
+                <div class="alert-row"><span>Eligible customers</span><span class="mono">126</span></div>
+                <div class="alert-row"><span>Estimated delivery</span><span class="mono">119 (94%)</span></div>
+                <div class="alert-row"><span>Campaign spend</span><span class="mono">${money(378)}</span></div>
+                <div class="alert-row"><span>Projected converted revenue</span><span class="mono good">${money(48200)}</span></div>
+              </div>
+              <div style="margin-top: 10px; display:flex; gap:8px;">
+                <button class="btn" type="button">Save Draft</button>
+                <button class="btn primary" type="button">Submit for Approval</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <article class="card reveal">
+          <h3 class="panel-title">Campaign Analytics</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Campaign</th><th>Delivered</th><th>Clicked</th><th>Converted</th><th>Revenue</th></tr></thead>
+              <tbody>
+                ${campaigns.map((c) => `<tr><td>${c.name}</td><td class="mono">${Number(c.delivered || 0).toLocaleString("en-IN")}</td><td class="mono">${Number(c.clicked || 0).toLocaleString("en-IN")}</td><td class="mono">${Number(c.converted || 0).toLocaleString("en-IN")}</td><td class="mono">${money(Number(c.revenue || 0))}</td></tr>`).join("") || `<tr><td colspan="5">No campaigns found.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      `;
+    },
+
+    reports() {
+      const rec = appState.reconciliation || { rows: [] };
+      const top = appState.topProducts || { items: [] };
+      const tax = appState.reports || {};
+      return `
+        <div class="section grid three-col">
+          <article class="card reveal"><div class="kpi-label">Gross margin today</div><div class="kpi-value mono">22.8%</div><div class="kpi-trend good">Above target by 1.2%</div></article>
+          <article class="card reveal"><div class="kpi-label">Return rate</div><div class="kpi-value mono">1.6%</div><div class="kpi-trend">Within normal band</div></article>
+          <article class="card reveal"><div class="kpi-label">Cashier variance</div><div class="kpi-value mono">${money(820)}</div><div class="kpi-trend warn">Counter 2 mismatch</div></article>
+        </div>
+
+        <div class="section grid two-col">
+          <article class="card reveal">
+            <h3 class="panel-title">Tax Summary (GST)</h3>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Period</th><th>Taxable Value</th><th>CGST</th><th>SGST</th><th>IGST</th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">${tax.period || "-"}</td><td class="mono">${money(Number(tax.taxable_value || 0))}</td><td class="mono">${money(Number(tax.cgst || 0))}</td><td class="mono">${money(Number(tax.sgst || 0))}</td><td class="mono">${money(Number(tax.igst || 0))}</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div style="margin-top:10px; display:flex; gap:8px;"><button class="btn" type="button">Export CSV</button><button class="btn" type="button">Export PDF</button><button class="btn primary" type="button">GSTR Format Export</button></div>
+          </article>
+
+          <article class="card reveal">
+            <h3 class="panel-title">Daily Close</h3>
+            <div class="mono" style="font-size:12px; display:grid; gap:6px;">
+              <div style="display:flex; justify-content:space-between;"><span>Opening Cash</span><span>${money(5000)}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>Cash Sales</span><span>${money(126400)}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>UPI/Card/Wallet</span><span>${money(215220)}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>Expected Drawer</span><span>${money(131400)}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>Counted Drawer</span><span>${money(130580)}</span></div>
+            </div>
+            <div style="margin-top:10px;"><span class="chip danger">Variance ${money(820)}</span></div>
+          </article>
+        </div>
+
+        <div class="section card reveal">
+          <h3 class="panel-title">UPI Reconciliation</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Gateway Amount</th><th>POS Amount</th><th>Variance</th><th>Status</th></tr></thead>
+              <tbody>
+                ${(rec.rows || []).map((r) => `<tr><td>${r.date}</td><td>${money(r.gateway_amount)}</td><td>${money(r.pos_amount)}</td><td>${money(r.variance)}</td><td><span class="chip ${r.variance === 0 ? "good" : "warn"}">${r.variance === 0 ? "Matched" : "Mismatch"}</span></td></tr>`).join("") || `<tr><td colspan="5">No reconciliation rows.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="section card reveal">
+          <h3 class="panel-title">Top Products</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>SKU</th><th>Name</th><th>Units Sold</th><th>Revenue</th></tr></thead>
+              <tbody>
+                ${(top.items || []).map((p) => `<tr><td class="mono">${p.sku}</td><td>${p.name}</td><td>${p.units_sold}</td><td>${money(p.revenue)}</td></tr>`).join("") || `<tr><td colspan="4">No top products.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    },
+
+    integrations() {
+      const iData = appState.integrations || {};
+      const wa = appState.whatsappEvents || { events: [] };
+      return `
+        <div class="section grid three-col">
+          <article class="card reveal">
+            <h3 class="panel-title">WhatsApp Cloud API</h3>
+            <div class="alert-row"><span>Status</span><span class="chip ${iData.whatsapp_status === "disconnected" ? "danger" : "good"}">${iData.whatsapp_status || "Connected"}</span></div>
+            <div class="alert-row"><span>Templates approved</span><span class="mono">${iData.whatsapp_templates || 12}</span></div>
+            <div class="alert-row"><span>Delivery callback success</span><span class="mono">${iData.whatsapp_delivery_success || "98.8%"}</span></div>
+            <button class="btn" type="button">Template Manager</button>
+          </article>
+          <article class="card reveal">
+            <h3 class="panel-title">Google Sheets Sync</h3>
+            <div class="alert-row"><span>Linked workbook</span><span class="mono">${iData.sheet_name || "Retail-ops-2026"}</span></div>
+            <div class="alert-row"><span>Schedule</span><span class="mono">${iData.sheet_schedule || "Every 30 min"}</span></div>
+            <div class="alert-row"><span>Last run</span><span class="mono">${iData.sheet_last_run || "4 min ago"}</span></div>
+            <button class="btn primary" type="button">Run Sync Now</button>
+          </article>
+          <article class="card reveal">
+            <h3 class="panel-title">Webhook Reliability</h3>
+            <div class="alert-row"><span>Retries in queue</span><span class="mono">${iData.webhook_retries || 7}</span></div>
+            <div class="alert-row"><span>Idempotency conflicts</span><span class="mono">${iData.idempotency_conflicts || 0}</span></div>
+            <div class="alert-row"><span>Failed signatures</span><span class="mono">${iData.failed_signatures || 2}</span></div>
+            <button class="btn" type="button">Open Logs</button>
+          </article>
+        </div>
+
+        <div class="section card reveal">
+          <h3 class="panel-title">WhatsApp Event Log</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>Type</th><th>Reference</th><th>Status</th></tr></thead>
+              <tbody>
+                ${(wa.events || []).slice(0, 12).map((e) => `<tr><td>${new Date(e.timestamp).toLocaleString()}</td><td>${e.type}</td><td class="mono">${e.reference_id}</td><td><span class="chip ${e.status === "sent" ? "good" : "warn"}">${e.status}</span></td></tr>`).join("") || `<tr><td colspan="4">No events logged.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    },
+
+    store() {
+      const sf = appState.storefront || {};
+      return `
+        <div class="section card reveal">
+          <h3 class="panel-title">Storefront Control Plane</h3>
+          <p class="muted" style="margin:0 0 10px;">${sf.notice || "Online store status not available."}</p>
+          <div class="grid three-col">
+            <article class="card"><div class="kpi-label">Published SKUs</div><div class="kpi-value mono">${sf.published_skus || 0}</div></article>
+            <article class="card"><div class="kpi-label">Pending Orders</div><div class="kpi-value mono">${sf.pending_orders || 0}</div></article>
+            <article class="card"><div class="kpi-label">Stock Sync Lag</div><div class="kpi-value mono">${sf.sync_lag_seconds || 0}s</div></article>
+          </div>
+        </div>
+      `;
+    },
+
+    settings() {
+      const setup = appState.settings || {};
+      return `
+        <div class="section grid two-col">
+          <article class="card reveal">
+            <h3 class="panel-title">Business + GST Profile</h3>
+            <div class="alert-row"><span>Legal Name</span><span class="mono">${setup.business_name || "-"}</span></div>
+            <div class="alert-row"><span>GSTIN</span><span class="mono">${setup.gstin || "-"}</span></div>
+            <div class="alert-row"><span>PAN</span><span class="mono">${setup.pan || "-"}</span></div>
+            <div class="alert-row"><span>Invoice Prefix</span><span class="mono">${setup.invoice_prefix || "-"}</span></div>
+            <button class="btn" type="button">Edit Business Details</button>
+          </article>
+
+          <article class="card reveal">
+            <h3 class="panel-title">Tax Engine Rules</h3>
+            <div class="alert-row"><span>Place of supply logic</span><span class="chip">IGST vs CGST/SGST</span></div>
+            <div class="alert-row"><span>HSN mapped SKUs</span><span class="mono">3,982 / 4,128</span></div>
+            <div class="alert-row"><span>Inclusive pricing SKUs</span><span class="mono">514</span></div>
+            <div class="alert-row"><span>Last GST export</span><span class="mono">2026-08-28 23:31</span></div>
+            <button class="btn primary" type="button">Run Compliance Audit</button>
+          </article>
+        </div>
+
+        <article class="card reveal">
+          <h3 class="panel-title">RBAC + Session Controls</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Role</th><th>Idle timeout</th><th>Absolute session</th><th>Sensitive action re-auth</th></tr></thead>
+              <tbody>
+                <tr><td>Cashier</td><td class="mono">15 min</td><td class="mono">8 hours</td><td>Void and refund > threshold</td></tr>
+                <tr><td>Manager</td><td class="mono">30 min</td><td class="mono">10 hours</td><td>Inventory adjustments and discount override</td></tr>
+                <tr><td>Admin</td><td class="mono">30 min</td><td class="mono">12 hours</td><td>GST config and role updates</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      `;
+    }
+  };
+
+  function renderNav() {
+    const navHtml = NAV.map((n) => `<button class="nav-btn" data-tab="${n.id}" type="button">${n.label}</button>`).join("");
+    document.getElementById("sidebar-nav").innerHTML = navHtml;
+
+    const mobileHtml = NAV.map((n) => `<button class="mnav-btn" data-tab="${n.id}" type="button"><span>${n.short}</span></button>`).join("");
+    document.getElementById("mobile-nav").innerHTML = mobileHtml;
+  }
+
+  function showToast(message) {
+    const el = document.getElementById("toast");
+    el.textContent = message;
+    el.classList.add("show");
+    window.setTimeout(() => el.classList.remove("show"), 1800);
+  }
+
+  async function setActive(tabId) {
+    appState.activeTab = tabId;
+    const name = TITLES[tabId] || TITLES.dashboard;
+    document.getElementById("view-title").textContent = name[0];
+    document.getElementById("view-subtitle").textContent = name[1];
+    document.getElementById("view-root").innerHTML = (page[tabId] || page.dashboard)();
+
+    document.querySelectorAll("[data-tab]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.tab === tabId);
+    });
+
+    wireView(tabId);
+    const wasLoaded = Boolean(appState.loaded[tabId]);
+    await hydrateTabData(tabId);
+    if (!wasLoaded && appState.loaded[tabId] && appState.activeTab === tabId) {
+      document.getElementById("view-root").innerHTML = (page[tabId] || page.dashboard)();
+      wireView(tabId);
+    }
+  }
+
+  function wireView(tabId) {
+    if (tabId === "pos") {
+      const submitBtn = document.querySelector("[data-action='submit-sale']");
+      if (submitBtn) {
+        submitBtn.addEventListener("click", () => submitPosSale());
+      }
+
+      const cameraBtn = document.querySelector("[data-action='scan-camera']");
+      const cameraInput = document.getElementById("camera-scan-input");
+      if (cameraBtn && cameraInput) {
+        cameraBtn.addEventListener("click", () => cameraInput.click());
+        cameraInput.addEventListener("change", () => {
+          const barcodeInput = document.getElementById("barcode-input");
+          if (barcodeInput) {
+            barcodeInput.value = "CAM-SCAN-PENDING";
+          }
+          showToast("Camera scan captured. OCR parser can be linked here.");
+        });
+      }
+    }
+
+    if (tabId === "customers") {
+      const tabs = document.querySelectorAll("[data-subtab]");
+      tabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          tabs.forEach((btn) => btn.classList.remove("active"));
+          tab.classList.add("active");
+          const isSegments = tab.dataset.subtab === "segments";
+          document.getElementById("sub-segments").style.display = isSegments ? "block" : "none";
+          document.getElementById("sub-timeline").style.display = isSegments ? "none" : "block";
+        });
+      });
+
+      const goPromotions = document.querySelector("[data-goto='promotions']");
+      if (goPromotions) {
+        goPromotions.addEventListener("click", () => setActive("promotions"));
+      }
+    }
+  }
+
+  document.addEventListener("click", (event) => {
+    recordUserActivity();
+    const tab = event.target.closest("[data-tab]");
+    if (tab) {
+      setActive(tab.dataset.tab);
+      return;
+    }
+
+    const actionBtn = event.target.closest("[data-action]");
+    if (actionBtn) {
+      const action = actionBtn.dataset.action;
+      if (action === "void-order") {
+        voidOrder(actionBtn.dataset.order);
+        return;
+      }
+      if (action === "reprint-order") {
+        reprintOrder(actionBtn.dataset.order);
+        return;
+      }
+      if (action === "send-receipt") {
+        sendWhatsAppReceipt();
+        return;
+      }
+      if (action === "print-receipt") {
+        showToast("Receipt print initiated");
+        return;
+      }
+      if (action === "print-labels") {
+        printLabels();
+        return;
+      }
+    }
+
+    const action = event.target.closest("[data-qa]");
+    if (action) {
+      const msg = {
+        sale: "Quick action: New Sale opened",
+        po: "Quick action: New Purchase Order opened",
+        campaign: "Quick action: Campaign draft opened"
+      };
+      showToast(msg[action.dataset.qa] || "Action triggered");
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    recordUserActivity();
+    if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      document.getElementById("global-search").focus();
+    }
+    if (event.key === "Escape") {
+      document.getElementById("auth-modal").classList.remove("show");
+    }
+  });
+
+  const authModal = document.getElementById("auth-modal");
+  const authForm = document.getElementById("auth-form");
+
+  document.getElementById("auth-toggle").addEventListener("click", async () => {
+    if (!authState.accessToken) {
+      window.location.href = "login.html";
+      return;
+    }
+
+    try {
+      if (isSupabaseConfigured()) {
+        await supabaseLogout(authState.accessToken);
+      } else {
+        await backendAuthLogout(authState.refreshToken);
+      }
+    } catch (_) {
+      // Continue and clear local session.
+    }
+
+    clearAuthSession();
+    updateAuthUi();
+    showToast("Signed out");
+    window.setTimeout(() => window.location.replace("login.html?reason=logout"), 200);
+  });
+
+  document.getElementById("auth-cancel").addEventListener("click", () => {
+    authModal.classList.remove("show");
+  });
+
+  authModal.addEventListener("click", (event) => {
+    if (event.target === authModal) {
+      authModal.classList.remove("show");
+    }
+  });
+
+  authForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const email = document.getElementById("auth-email").value.trim();
+    const password = document.getElementById("auth-password").value;
+
+    try {
+      const payload = isSupabaseConfigured()
+        ? await supabasePasswordLogin(email, password)
+        : await backendAuthLogin(email, password);
+      if (!payload.user) {
+        payload.user = { email };
+      }
+      setAuthSession(payload);
+      updateAuthUi();
+      authForm.reset();
+      authModal.classList.remove("show");
+      showToast(isSupabaseConfigured() ? "Signed in with Supabase" : "Signed in with mock auth");
+      setActive(appState.activeTab);
+    } catch (_) {
+      showToast("Login failed. Check credentials and config.");
+    }
+  });
+
+  async function bootApp() {
+    loadAuthFromStorage();
+    updateAuthUi();
+
+    const isAuthenticated = await ensureAuthenticatedSession();
+    if (!isAuthenticated) {
+      return;
+    }
+
+    scheduleTokenRefresh();
+    scheduleSessionTimeouts();
+
+    const storeSelect = document.getElementById("store-select");
+    const roleSelect = document.getElementById("role-select");
+    if (storeSelect) {
+      storeSelect.value = appState.currentStoreId;
+      storeSelect.addEventListener("change", () => {
+        appState.currentStoreId = storeSelect.value;
+        localStorage.setItem("onecounter_store_id", appState.currentStoreId);
+        appState.loaded = {};
+        setActive(appState.activeTab);
+        showToast("Store switched");
+      });
+    }
+    if (roleSelect) {
+      roleSelect.value = authState.role || appState.currentRole;
+      roleSelect.addEventListener("change", () => {
+        appState.currentRole = roleSelect.value;
+        authState.role = roleSelect.value;
+        localStorage.setItem("onecounter_role", appState.currentRole);
+        persistAuth();
+        scheduleSessionTimeouts();
+        showToast(`Role set to ${appState.currentRole}`);
+      });
+    }
+
+    renderNav();
+    setActive("dashboard");
+  }
+
+  bootApp();
+
+  let deferredPrompt = null;
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredPrompt = event;
+    document.getElementById("install-banner").classList.add("show");
+  });
+
+  document.getElementById("install-now").addEventListener("click", async () => {
+    document.getElementById("install-banner").classList.remove("show");
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+    }
+  });
+
+  document.getElementById("install-dismiss").addEventListener("click", () => {
+    document.getElementById("install-banner").classList.remove("show");
+  });
+
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").then((registration) => {
+        if (registration.sync) {
+          registration.sync.register("pos-outbox-sync").catch(() => {});
+        }
+
+        const onlineSync = () => {
+          if (navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({ type: "SYNC_POS_QUEUE" });
+          }
+        };
+        window.addEventListener("online", onlineSync);
+      }).catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,80 @@
+{
+  "POST /v1/auth/login": {
+    "type": "object",
+    "required": ["email", "password"],
+    "properties": {
+      "email": { "type": "string", "format": "email" },
+      "password": { "type": "string", "minLength": 8 }
+    }
+  },
+  "POST /v1/auth/refresh": {
+    "type": "object",
+    "required": ["refresh_token"],
+    "properties": {
+      "refresh_token": { "type": "string" }
+    }
+  },
+  "POST /v1/auth/logout": {
+    "type": "object",
+    "required": ["refresh_token"],
+    "properties": {
+      "refresh_token": { "type": "string" }
+    }
+  },
+  "POST /v1/pos/sales": {
+    "type": "object",
+    "required": ["store_id", "business_id", "channel", "customer", "status", "items", "totals", "payments"],
+    "properties": {
+      "store_id": { "type": "string" },
+      "business_id": { "type": "string" },
+      "channel": { "type": "string", "enum": ["in_store", "online"] },
+      "customer": {
+        "type": "object",
+        "properties": {
+          "id": { "type": ["string", "null"] },
+          "name": { "type": "string" }
+        }
+      },
+      "status": { "type": "string", "enum": ["created", "paid", "packed", "shipped", "delivered", "returned"] },
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["name", "sku", "quantity", "unit_price", "line_total"],
+          "properties": {
+            "name": { "type": "string" },
+            "sku": { "type": "string" },
+            "quantity": { "type": "number" },
+            "unit_price": { "type": "number" },
+            "line_total": { "type": "number" }
+          }
+        }
+      },
+      "totals": {
+        "type": "object",
+        "required": ["subtotal", "tax_amount", "discount_amount", "total_amount"],
+        "properties": {
+          "subtotal": { "type": "number" },
+          "tax_amount": { "type": "number" },
+          "discount_amount": { "type": "number" },
+          "total_amount": { "type": "number" }
+        }
+      },
+      "payments": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["mode", "amount"],
+          "properties": {
+            "mode": { "type": "string", "enum": ["cash", "upi", "card", "wallet"] },
+            "amount": { "type": "number" }
+          }
+        }
+      },
+      "metadata": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}

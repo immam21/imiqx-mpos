@@ -1,0 +1,182 @@
+{
+  "POST /v1/auth/login": {
+    "type": "object",
+    "required": ["access_token", "token_type", "expires_in", "refresh_token", "user"],
+    "properties": {
+      "access_token": { "type": "string" },
+      "token_type": { "type": "string", "enum": ["bearer"] },
+      "expires_in": { "type": "integer" },
+      "refresh_token": { "type": "string" },
+      "user": {
+        "type": "object",
+        "required": ["id", "email"],
+        "properties": {
+          "id": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "role": { "type": "string" }
+        }
+      }
+    }
+  },
+  "POST /v1/auth/refresh": {
+    "type": "object",
+    "required": ["access_token", "token_type", "expires_in", "refresh_token", "user"],
+    "properties": {
+      "access_token": { "type": "string" },
+      "token_type": { "type": "string", "enum": ["bearer"] },
+      "expires_in": { "type": "integer" },
+      "refresh_token": { "type": "string" },
+      "user": {
+        "type": "object",
+        "required": ["id", "email"],
+        "properties": {
+          "id": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "role": { "type": "string" }
+        }
+      }
+    }
+  },
+  "POST /v1/auth/logout": {
+    "status": 204
+  },
+  "GET /v1/reports/dashboard": {
+    "type": "object",
+    "required": ["kpis", "trend", "alerts"],
+    "properties": {
+      "kpis": {
+        "type": "object",
+        "required": ["revenue_today", "orders_today", "aov", "low_stock_skus", "failed_sync_alerts"],
+        "properties": {
+          "revenue_today": { "type": "number" },
+          "orders_today": { "type": "integer" },
+          "aov": { "type": "number" },
+          "low_stock_skus": { "type": "integer" },
+          "failed_sync_alerts": { "type": "integer" }
+        }
+      },
+      "trend": { "type": "array" },
+      "alerts": { "type": "array", "items": { "type": "string" } }
+    }
+  },
+  "GET /v1/orders": {
+    "type": "object",
+    "required": ["items"],
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["order_no", "channel", "customer_name", "total_amount", "status"],
+          "properties": {
+            "order_no": { "type": "string" },
+            "channel": { "type": "string" },
+            "customer_name": { "type": "string" },
+            "total_amount": { "type": "number" },
+            "status": { "type": "string" }
+          }
+        }
+      },
+      "next_cursor": { "type": ["string", "null"] }
+    }
+  },
+  "GET /v1/inventory/products": {
+    "type": "object",
+    "required": ["items"],
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["sku", "name", "stock", "reorder_at"],
+          "properties": {
+            "sku": { "type": "string" },
+            "name": { "type": "string" },
+            "stock": { "type": "number" },
+            "reorder_at": { "type": "number" }
+          }
+        }
+      }
+    }
+  },
+  "GET /v1/customers": {
+    "type": "object",
+    "required": ["items"],
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["id", "name", "segment"],
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "segment": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  "GET /v1/promotions/campaigns": {
+    "type": "object",
+    "required": ["items"],
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["id", "name", "delivered", "converted"],
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "delivered": { "type": "integer" },
+            "converted": { "type": "integer" }
+          }
+        }
+      }
+    }
+  },
+  "GET /v1/reports/tax-summary": {
+    "type": "object",
+    "required": ["period", "taxable_value", "cgst", "sgst", "igst"],
+    "properties": {
+      "period": { "type": "string" },
+      "taxable_value": { "type": "number" },
+      "cgst": { "type": "number" },
+      "sgst": { "type": "number" },
+      "igst": { "type": "number" }
+    }
+  },
+  "GET /v1/integrations/status": {
+    "type": "object",
+    "required": ["whatsapp_status", "whatsapp_templates", "whatsapp_delivery_success", "sheet_name", "sheet_schedule", "sheet_last_run", "webhook_retries", "idempotency_conflicts", "failed_signatures"],
+    "properties": {
+      "whatsapp_status": { "type": "string" },
+      "whatsapp_templates": { "type": "integer" },
+      "whatsapp_delivery_success": { "type": "string" },
+      "sheet_name": { "type": "string" },
+      "sheet_schedule": { "type": "string" },
+      "sheet_last_run": { "type": "string" },
+      "webhook_retries": { "type": "integer" },
+      "idempotency_conflicts": { "type": "integer" },
+      "failed_signatures": { "type": "integer" }
+    }
+  },
+  "GET /v1/business/setup": {
+    "type": "object",
+    "required": ["business_name", "gstin", "invoice_prefix"],
+    "properties": {
+      "business_name": { "type": "string" },
+      "gstin": { "type": "string" },
+      "invoice_prefix": { "type": "string" }
+    }
+  },
+  "POST /v1/pos/sales": {
+    "type": "object",
+    "required": ["sale_id", "status"],
+    "properties": {
+      "sale_id": { "type": "string" },
+      "status": { "type": "string", "enum": ["accepted"] }
+    }
+  }
+}
