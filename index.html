@@ -552,23 +552,27 @@
 
   #toast {
     position: fixed;
-    right: 16px;
-    bottom: 16px;
+    top: 50%;
+    left: 50%;
+    width: min(360px, calc(100vw - 32px));
     background: var(--color-toast);
     color: #fff;
-    border-radius: 10px;
-    padding: 10px 12px;
-    font-size: 12px;
-    box-shadow: var(--shadow-md);
+    border-radius: var(--radius-md);
+    padding: 16px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.45;
+    text-align: center;
+    box-shadow: var(--shadow-lg);
     opacity: 0;
-    transform: translateY(12px);
+    transform: translate(-50%, -42%);
     pointer-events: none;
     transition: opacity 220ms ease, transform 220ms ease;
-    z-index: 60;
+    z-index: 120;
   }
   #toast.show {
     opacity: 1;
-    transform: translateY(0);
+    transform: translate(-50%, -50%);
   }
 
   #install-banner {
@@ -1477,6 +1481,12 @@
       showToast("Enter a barcode or SKU");
       return;
     }
+    if (input && input.dataset.adding === "true") {
+      return;
+    }
+    if (input) {
+      input.dataset.adding = "true";
+    }
     try {
       const p = await apiFetch(`${API_ENDPOINTS.productLookup}?code=${encodeURIComponent(code)}`);
       if (Number(p.available_qty) <= 0) {
@@ -1504,6 +1514,10 @@
       posRerender();
     } catch (_) {
       showToast("Item not found in inventory");
+    } finally {
+      if (input && input.isConnected) {
+        delete input.dataset.adding;
+      }
     }
   }
 
@@ -2970,6 +2984,13 @@
       }
       const scan = document.getElementById("pos-scan");
       if (scan) {
+        scan.addEventListener("input", () => {
+          const code = scan.value.trim();
+          const isKnownSku = POS_STATE.catalog.some((product) => product.sku === code);
+          if (isKnownSku) {
+            posAddItem();
+          }
+        });
         scan.addEventListener("keydown", (e) => {
           if (e.key === "Enter") {
             e.preventDefault();
