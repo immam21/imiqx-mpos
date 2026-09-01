@@ -18,18 +18,33 @@
 <link href="https://fonts.googleapis.com/css2?family=Calistoga&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
   :root {
-    --color-primary: #2563EB;
-    --color-secondary: #60A5FA;
-    --color-accent: #C2410C;
-    --color-background: #F4F7FB;
-    --color-foreground: #1E293B;
+    --color-primary: #0F766E;
+    --color-secondary: #2563EB;
+    --color-accent: #EA580C;
+    --color-background: #EEF6FF;
+    --color-foreground: #172033;
     --color-card: #FFFFFF;
-    --color-muted: #E9EFF8;
+    --color-muted: #E6F0FB;
     --color-muted-foreground: #475569;
     --color-border: #E2E8F0;
     --color-success: #15803D;
     --color-warning: #B45309;
     --color-danger: #DC2626;
+    --color-page-start: #F4FBFF;
+    --color-page-end: #FFF5ED;
+    --color-sidebar: #172033;
+    --color-sidebar-text: #DCE5F4;
+    --color-sidebar-muted: #AFBDD3;
+    --color-sidebar-hover: rgba(255, 255, 255, 0.08);
+    --color-sidebar-active: rgba(37, 99, 235, 0.28);
+    --color-sidebar-active-border: rgba(147, 197, 253, 0.32);
+    --color-topbar: rgba(255, 255, 255, 0.9);
+    --color-control: rgba(255, 255, 255, 0.82);
+    --color-heading: #172033;
+    --color-table-head: #F6F8FB;
+    --color-bar-track: #E2E8F0;
+    --color-toast: #0F172A;
+    --color-modal: #FFFFFF;
     --space-xs: 2px;
     --space-sm: 4px;
     --space-md: 8px;
@@ -45,12 +60,63 @@
     --sidebar-width: 268px;
   }
 
+  :root[data-theme="dark"] {
+    --color-primary: #2DD4BF;
+    --color-secondary: #60A5FA;
+    --color-accent: #FB923C;
+    --color-background: #101827;
+    --color-foreground: #E6EDF7;
+    --color-card: #182235;
+    --color-muted: #233149;
+    --color-muted-foreground: #B6C4D8;
+    --color-border: #33445E;
+    --color-success: #4ADE80;
+    --color-warning: #FBBF24;
+    --color-danger: #FB7185;
+    --color-page-start: #0E1625;
+    --color-page-end: #172033;
+    --color-sidebar: #0A101D;
+    --color-sidebar-text: #E6EDF7;
+    --color-sidebar-muted: #B6C4D8;
+    --color-sidebar-hover: rgba(96, 165, 250, 0.15);
+    --color-sidebar-active: rgba(45, 212, 191, 0.18);
+    --color-sidebar-active-border: rgba(45, 212, 191, 0.4);
+    --color-topbar: rgba(16, 24, 39, 0.92);
+    --color-control: rgba(24, 34, 53, 0.92);
+    --color-heading: #F8FAFC;
+    --color-table-head: #202C43;
+    --color-bar-track: #33445E;
+    --color-toast: #020617;
+    --color-modal: #182235;
+  }
+
+  :root[data-theme="dark"] .pill,
+  :root[data-theme="dark"] .tab-btn.active,
+  :root[data-theme="dark"] .step {
+    border-color: var(--color-secondary);
+    background: var(--color-muted);
+    color: var(--color-secondary);
+  }
+  :root[data-theme="dark"] .step.active {
+    background: linear-gradient(90deg, var(--color-primary), var(--color-secondary));
+    color: #07111F;
+  }
+  :root[data-theme="dark"] input,
+  :root[data-theme="dark"] select {
+    background-color: var(--color-card);
+    color: var(--color-foreground);
+  }
+  :root[data-theme="dark"] [style*="background:#F8FAFC"],
+  :root[data-theme="dark"] [style*="background:#fff"] {
+    background: var(--color-muted) !important;
+  }
+
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
     font-family: Inter, sans-serif;
     color: var(--color-foreground);
-    background: linear-gradient(135deg, #F7FAFE 0%, var(--color-background) 44%, #F0F5FC 100%);
+    background: linear-gradient(135deg, var(--color-page-start) 0%, var(--color-background) 44%, var(--color-page-end) 100%);
     min-height: 100vh;
     overflow: hidden;
     padding-top: env(safe-area-inset-top);
@@ -94,8 +160,8 @@
     inset: 0 auto 0 0;
     width: var(--sidebar-width);
     max-width: min(86vw, var(--sidebar-width));
-    background: #172033;
-    color: #DCE5F4;
+    background: var(--color-sidebar);
+    color: var(--color-sidebar-text);
     border-right: 1px solid rgba(255, 255, 255, 0.08);
     backdrop-filter: blur(16px);
     display: flex;
@@ -146,7 +212,7 @@
   .nav-btn {
     border: 0;
     background: transparent;
-    color: #AFBDD3;
+    color: var(--color-sidebar-muted);
     border-radius: var(--radius-sm);
     padding: 10px 12px;
     min-height: 44px;
@@ -159,11 +225,11 @@
     cursor: pointer;
     transition: background 180ms ease, color 180ms ease;
   }
-  .nav-btn:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+  .nav-btn:hover { background: var(--color-sidebar-hover); color: #fff; }
   .nav-btn.active {
     color: #fff;
-    background: rgba(37, 99, 235, 0.28);
-    border: 1px solid rgba(147, 197, 253, 0.32);
+    background: var(--color-sidebar-active);
+    border: 1px solid var(--color-sidebar-active-border);
   }
 
   .role-card {
@@ -190,7 +256,7 @@
     top: 0;
     z-index: 30;
     border-bottom: 1px solid var(--color-border);
-    background: rgba(255, 255, 255, 0.9);
+    background: var(--color-topbar);
     backdrop-filter: blur(10px);
     padding: 12px 20px;
     display: flex;
@@ -201,7 +267,7 @@
   .topbar-primary { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .menu-btn {
     border: 1px solid var(--color-border);
-    background: rgba(255, 255, 255, 0.82);
+    background: var(--color-control);
     color: var(--color-foreground);
     width: 44px;
     height: 44px;
@@ -255,6 +321,37 @@
     background: transparent;
     color: var(--color-foreground);
   }
+  input[role="switch"] {
+    appearance: none;
+    width: 44px;
+    height: 24px;
+    margin: 0;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: var(--color-muted);
+    cursor: pointer;
+    position: relative;
+    flex: 0 0 auto;
+    transition: background 180ms ease, border-color 180ms ease;
+  }
+  input[role="switch"]::after {
+    content: "";
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    top: 2px;
+    left: 2px;
+    border-radius: 50%;
+    background: var(--color-card);
+    box-shadow: var(--shadow-sm);
+    transition: transform 180ms ease;
+  }
+  input[role="switch"]:checked {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+  }
+  input[role="switch"]:checked::after { transform: translateX(20px); }
+  input[role="switch"]:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
   .pill {
     border-radius: 999px;
     border: 1px solid #C7D6F3;
@@ -280,7 +377,7 @@
     cursor: pointer;
     transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease, color 180ms ease;
   }
-  .btn:hover { border-color: #B8C5D6; box-shadow: var(--shadow-sm); }
+  .btn:hover { border-color: var(--color-secondary); box-shadow: var(--shadow-sm); }
   .btn:active { box-shadow: none; }
   .btn:disabled { cursor: not-allowed; opacity: 0.58; box-shadow: none; }
   .btn:focus-visible, .nav-btn:focus-visible, .tab-btn:focus-visible {
@@ -337,7 +434,7 @@
     margin: 0 0 10px;
     font-size: 13px;
     font-weight: 700;
-    color: #172033;
+    color: var(--color-heading);
   }
 
   .bars {
@@ -356,7 +453,7 @@
   .bar-track {
     height: 8px;
     border-radius: 999px;
-    background: #E2E8F0;
+    background: var(--color-bar-track);
     overflow: hidden;
   }
   .bar-fill {
@@ -382,7 +479,7 @@
     font-size: 11px;
     font-weight: 600;
     border: 1px solid var(--color-border);
-    background: #fff;
+    background: var(--color-card);
     color: var(--color-muted-foreground);
     display: inline-flex;
     align-items: center;
@@ -398,11 +495,11 @@
   thead th {
     text-align: left;
     font-size: 10.5px;
-    color: #64748B;
+    color: var(--color-muted-foreground);
     padding: 8px 10px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    background: #F6F8FB;
+    background: var(--color-table-head);
   }
   tbody td {
     border-top: 1px solid var(--color-border);
@@ -415,7 +512,7 @@
   .tab-btn {
     border-radius: var(--radius-sm);
     border: 1px solid var(--color-border);
-    background: #fff;
+    background: var(--color-card);
     color: var(--color-muted-foreground);
     padding: 7px 12px;
     font-size: 12px;
@@ -457,7 +554,7 @@
     position: fixed;
     right: 16px;
     bottom: 16px;
-    background: #0F172A;
+    background: var(--color-toast);
     color: #fff;
     border-radius: 10px;
     padding: 10px 12px;
@@ -481,7 +578,7 @@
     bottom: 16px;
     z-index: 50;
     display: none;
-    background: #0F172A;
+    background: var(--color-toast);
     color: #fff;
     border-radius: 12px;
     border: 1px solid #334155;
@@ -512,6 +609,65 @@
     white-space: nowrap;
   }
   .page-loading.show { display: inline-flex; }
+  .loading-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.48);
+    backdrop-filter: blur(3px);
+  }
+  .loading-overlay.show { display: flex; }
+  .loading-overlay-panel {
+    min-width: 172px;
+    padding: 18px 22px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-modal);
+    color: var(--color-foreground);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-size: 13px;
+    font-weight: 700;
+    box-shadow: var(--shadow-md);
+  }
+  .welcome-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 110;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: linear-gradient(135deg, var(--color-page-start), var(--color-background) 52%, var(--color-page-end));
+  }
+  .welcome-screen.show { display: flex; }
+  .welcome-content {
+    width: min(640px, 100%);
+    text-align: center;
+    animation: fade-up 420ms ease both;
+  }
+  .welcome-mark {
+    width: 58px;
+    height: 58px;
+    margin: 0 auto 24px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-md);
+    background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+    color: #fff;
+    font-size: 22px;
+    font-weight: 700;
+    box-shadow: var(--shadow-md);
+  }
+  .welcome-kicker { margin: 0 0 10px; color: var(--color-primary); font-size: 13px; font-weight: 700; }
+  .welcome-title { margin: 0; color: var(--color-heading); font-size: clamp(34px, 7vw, 58px); font-weight: 400; line-height: 1.08; }
+  .welcome-business { display: block; margin-top: 8px; color: var(--color-accent); }
+  .welcome-message { max-width: 460px; margin: 18px auto 28px; color: var(--color-muted-foreground); font-size: 16px; line-height: 1.6; }
   .loading-spinner {
     width: 14px;
     height: 14px;
@@ -533,7 +689,7 @@
   .modal-backdrop.show { display: flex; }
   .modal-card {
     width: min(440px, 100%);
-    background: #fff;
+    background: var(--color-modal);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     box-shadow: 0 20px 50px rgba(15, 23, 42, 0.2);
@@ -683,6 +839,18 @@
   </main>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
+<div id="loading-overlay" class="loading-overlay" role="status" aria-live="polite" aria-label="Loading latest data">
+  <div class="loading-overlay-panel"><span class="loading-spinner" aria-hidden="true"></span><span>Loading...</span></div>
+</div>
+<section id="welcome-screen" class="welcome-screen" aria-labelledby="welcome-title">
+  <div class="welcome-content">
+    <div class="welcome-mark">1C</div>
+    <p class="welcome-kicker">YOUR RETAIL DAY STARTS HERE</p>
+    <h1 id="welcome-title" class="display welcome-title">Welcome Back!<span id="welcome-business" class="welcome-business">OneCounter</span></h1>
+    <p class="welcome-message">A fresh day, a clear counter, and every detail ready when you are.</p>
+    <button id="welcome-start" class="btn primary" type="button">Start My Day</button>
+  </div>
+</section>
 
 <div id="install-banner" role="region" aria-label="Install app prompt">
   <div class="meta">
@@ -834,8 +1002,19 @@
   const DASHBOARD_STATE = { period: "today" };
   let INVENTORY_EDIT = null;
 
+  function applyTheme(theme) {
+    const isDark = theme === "dark";
+    document.documentElement.dataset.theme = isDark ? "dark" : "light";
+    document.querySelector('meta[name="theme-color"]').setAttribute("content", isDark ? "#101827" : "#0F766E");
+    localStorage.setItem("onecounter_theme", isDark ? "dark" : "light");
+  }
+
+  function isDarkTheme() {
+    return localStorage.getItem("onecounter_theme") === "dark";
+  }
+
   const appState = {
-    activeTab: "dashboard",
+    activeTab: "pos",
     loaded: {},
     currentStoreId: localStorage.getItem("onecounter_store_id") || APP_CONFIG.storeId,
     currentRole: localStorage.getItem("onecounter_role") || "manager",
@@ -1143,36 +1322,41 @@
   }
 
   async function apiFetch(path, options = {}) {
-    const token = await ensureValidAccessToken();
-    const headers = {
-      "Content-Type": "application/json",
-      "X-Store-Id": appState.currentStoreId,
-      "X-Business-Id": APP_CONFIG.businessId,
-      ...(options.headers || {})
-    };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
+    setPageLoading(true);
+    try {
+      const token = await ensureValidAccessToken();
+      const headers = {
+        "Content-Type": "application/json",
+        "X-Store-Id": appState.currentStoreId,
+        "X-Business-Id": APP_CONFIG.businessId,
+        ...(options.headers || {})
+      };
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
 
-    let res = await fetch(`${APP_CONFIG.apiBaseUrl}${path}`, {
-      ...options,
-      headers
-    });
-
-    if (res.status === 401 && authState.refreshToken) {
-      const renewedToken = await refreshAccessToken();
-      headers.Authorization = `Bearer ${renewedToken}`;
-      res = await fetch(`${APP_CONFIG.apiBaseUrl}${path}`, {
+      let res = await fetch(`${APP_CONFIG.apiBaseUrl}${path}`, {
         ...options,
         headers
       });
-    }
 
-    if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(txt || `API request failed (${res.status})`);
+      if (res.status === 401 && authState.refreshToken) {
+        const renewedToken = await refreshAccessToken();
+        headers.Authorization = `Bearer ${renewedToken}`;
+        res = await fetch(`${APP_CONFIG.apiBaseUrl}${path}`, {
+          ...options,
+          headers
+        });
+      }
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || `API request failed (${res.status})`);
+      }
+      return res.json();
+    } finally {
+      setPageLoading(false);
     }
-    return res.json();
   }
 
   async function hydrateTabData(tabId) {
@@ -2230,10 +2414,11 @@
             <div style="margin: 10px 0; border-top: 1px dashed var(--color-border); padding-top: 10px; display:flex; justify-content:space-between;">
               <strong>Total Payable</strong><strong class="mono">${money(t.total)}</strong>
             </div>
-            <div style="margin-bottom: 10px; display:flex; gap: 8px;">
-              <button class="btn ${mode === "cash" ? "primary" : ""}" type="button" data-action="pos-pay-mode" data-mode="cash">Cash</button>
-              <button class="btn ${mode === "upi" ? "primary" : ""}" type="button" data-action="pos-pay-mode" data-mode="upi">UPI</button>
-            </div>
+            <fieldset style="border:0; padding:0; margin:0 0 10px; display:flex; gap:16px; flex-wrap:wrap;">
+              <legend class="sr-only">Payment method</legend>
+              <label style="display:flex; align-items:center; gap:7px; font-size:13px; font-weight:600;"><input type="radio" name="pos-payment-mode" value="cash" ${mode === "cash" ? "checked" : ""} /> Cash</label>
+              <label style="display:flex; align-items:center; gap:7px; font-size:13px; font-weight:600;"><input type="radio" name="pos-payment-mode" value="upi" ${mode === "upi" ? "checked" : ""} /> UPI</label>
+            </fieldset>
             ${mode === "upi" ? `<div style="text-align:center; margin-bottom:10px;"><div id="upi-qr" style="display:inline-block; padding:6px; background:#fff;"></div><div class="muted" style="font-size:11px; margin-top:4px;">Scan to pay ${money(t.total)} (placeholder QR)</div></div>` : ""}
             <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin-bottom:10px;">
               <input id="pos-mark-paid-check" type="checkbox" ${POS_STATE.markPaid ? "checked" : ""} /> Mark as paid
@@ -2659,6 +2844,13 @@
     settings() {
       const s = appState.settings || {};
       return `
+        <div class="section card reveal">
+          <h3 class="panel-title">Appearance</h3>
+          <label style="display:flex; align-items:center; justify-content:space-between; gap:16px; font-size:13px; font-weight:600;">
+            <span>Dark mode</span>
+            <input id="set-dark-mode" type="checkbox" role="switch" ${isDarkTheme() ? "checked" : ""} />
+          </label>
+        </div>
         <div class="section grid two-col">
           <article class="card reveal">
             <h3 class="panel-title">Business + GST Profile</h3>
@@ -2726,9 +2918,16 @@
     window.setTimeout(() => el.classList.remove("show"), 1800);
   }
 
+  function showWelcomeScreen() {
+    const businessName = (appState.settings && appState.settings.business_name) || "OneCounter";
+    document.getElementById("welcome-business").textContent = businessName;
+    document.getElementById("welcome-screen").classList.add("show");
+  }
+
   function setPageLoading(isLoading) {
     pendingPageLoads = Math.max(0, pendingPageLoads + (isLoading ? 1 : -1));
     document.getElementById("page-loading").classList.toggle("show", pendingPageLoads > 0);
+    document.getElementById("loading-overlay").classList.toggle("show", pendingPageLoads > 0);
   }
 
   async function setActive(tabId) {
@@ -2812,6 +3011,16 @@
       document.querySelectorAll("#rate-cost-price, #rate-operational-cost, #rate-misc-cost, #rate-markup-percent").forEach((input) => {
         input.addEventListener("input", updateRateCalculator);
       });
+    }
+
+    if (tabId === "settings") {
+      const darkMode = document.getElementById("set-dark-mode");
+      if (darkMode) {
+        darkMode.addEventListener("change", () => {
+          applyTheme(darkMode.checked ? "dark" : "light");
+          showToast(darkMode.checked ? "Dark mode enabled" : "Light mode enabled");
+        });
+      }
     }
   }
 
@@ -3023,6 +3232,8 @@
       });
     } else if (event.target.id === "pos-mark-paid-check") {
       POS_STATE.markPaid = event.target.checked;
+    } else if (event.target.name === "pos-payment-mode") {
+      posSetPayment(event.target.value);
     } else if (event.target.name === "pos-customer-mode") {
       const isNewCustomer = event.target.value === "new";
       POS_STATE.customer.mode = isNewCustomer ? "new" : "existing";
@@ -3077,8 +3288,21 @@
 
     clearAuthSession();
     updateAuthUi();
-    showToast("Signed out");
-    window.setTimeout(() => window.location.replace("login.html?reason=logout"), 200);
+    setPageLoading(true);
+    try {
+      if ("caches" in window) {
+        const cacheNames = await caches.keys();
+        await Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)));
+      }
+      if (navigator.serviceWorker) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+      }
+    } catch (_) {
+      // Local authentication is already cleared if browser storage is unavailable.
+    } finally {
+      window.location.replace(`login.html?reason=logout&ts=${Date.now()}`);
+    }
   });
 
   document.getElementById("auth-cancel").addEventListener("click", () => {
@@ -3139,13 +3363,21 @@
       authForm.reset();
       authModal.classList.remove("show");
       showToast(isSupabaseConfigured() ? "Signed in with Supabase" : "Signed in with mock auth");
-      setActive(appState.activeTab);
+      try {
+        appState.settings = await apiFetch(API_ENDPOINTS.settings);
+        appState.loaded.settings = true;
+      } catch (_) {
+        // The welcome screen uses the product name when business settings are unavailable.
+      }
+      await setActive("pos");
+      showWelcomeScreen();
     } catch (_) {
       showToast("Login failed. Check credentials and config.");
     }
   });
 
   async function bootApp() {
+    applyTheme(isDarkTheme() ? "dark" : "light");
     loadAuthFromStorage();
     updateAuthUi();
 
@@ -3182,10 +3414,22 @@
     }
 
     renderNav();
-    setActive("dashboard");
+    try {
+      appState.settings = await apiFetch(API_ENDPOINTS.settings);
+      appState.loaded.settings = true;
+    } catch (_) {
+      // The welcome screen uses the product name when business settings are unavailable.
+    }
+    await setActive("pos");
+    showWelcomeScreen();
   }
 
   bootApp();
+
+  document.getElementById("welcome-start").addEventListener("click", () => {
+    document.getElementById("welcome-screen").classList.remove("show");
+    document.getElementById("view-root").focus();
+  });
 
   let deferredPrompt = null;
   window.addEventListener("beforeinstallprompt", (event) => {
