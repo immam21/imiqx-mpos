@@ -34,3 +34,42 @@ create table if not exists expenses (
 );
 
 create index if not exists idx_expenses_store_date on expenses (store_id, expense_date desc);
+
+-- Attribute every sale and expense to the authenticated staff member.
+alter table orders add column if not exists sold_by_user_id uuid references app_users(id) on delete set null;
+alter table orders add column if not exists sold_by_name text;
+create index if not exists idx_orders_store_staff_date on orders (store_id, sold_by_user_id, created_at desc);
+
+alter table expenses add column if not exists recorded_by_user_id uuid references app_users(id) on delete set null;
+alter table expenses add column if not exists recorded_by_name text;
+create index if not exists idx_expenses_store_staff_date on expenses (store_id, recorded_by_user_id, expense_date desc);
+
+-- Per-store cash drawer lifecycle for daily opening and closing reconciliation.
+create table if not exists cash_sessions (
+	id uuid primary key default gen_random_uuid(),
+	business_id uuid not null references businesses(id) on delete cascade,
+	store_id uuid not null references stores(id) on delete cascade,
+	opening_amount numeric(12,2) not null check (opening_amount >= 0),
+	closing_amount numeric(12,2),
+	opened_at timestamptz not null default now(),
+	closed_at timestamptz,
+	opened_by_user_id uuid references app_users(id) on delete set null,
+	opened_by_name text,
+	closed_by_user_id uuid references app_users(id) on delete set null,
+	closed_by_name text,
+	status text not null default 'open' check (status in ('open', 'closed'))
+);
+create unique index if not exists idx_cash_sessions_one_open_per_store on cash_sessions (store_id) where status = 'open';
+create index if not exists idx_cash_sessions_store_opened on cash_sessions (store_id, opened_at desc);
+
+-- Audit trail for the automatic two-hour Google Sheets backup.
+create table if not exists google_sheets_sync_runs (
+	id uuid primary key default gen_random_uuid(),
+	business_id uuid not null references businesses(id) on delete cascade,
+	status text not null check (status in ('success', 'error')),
+	sales_rows integer not null default 0,
+	expense_rows integer not null default 0,
+	error_message text,
+	completed_at timestamptz not null default now()
+);
+create index if not exists idx_google_sheets_sync_runs_business_completed on google_sheets_sync_runs (business_id, completed_at desc);

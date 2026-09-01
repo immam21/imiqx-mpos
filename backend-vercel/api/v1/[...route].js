@@ -150,6 +150,7 @@ function getAuthMode() {
 }
 
 const mockAuthSessions = {};
+const mockAccessSessions = {};
 
 function issueMockToken(user) {
   const refreshToken = `mock-refresh-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -161,7 +162,29 @@ function issueMockToken(user) {
     user: { id: user.id || "user-mock-1", email: user.email || "", role: user.role || "manager" }
   };
   mockAuthSessions[refreshToken] = { id: payload.user.id, email: payload.user.email, role: payload.user.role, issued_at: nowIso() };
+  mockAccessSessions[payload.access_token] = payload.user;
   return payload;
+}
+
+async function resolveActor(req) {
+  const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
+  if (!token) return null;
+  if (getAuthMode() === "local_db") {
+    return mockAccessSessions[token] || null;
+  }
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const pub = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (!supabaseUrl || !pub) return null;
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    headers: { apikey: pub, Authorization: `Bearer ${token}` }
+  });
+  if (!response.ok) return null;
+  const user = await response.json();
+  return {
+    id: user.id,
+    email: user.email || "",
+    name: (user.user_metadata && user.user_metadata.full_name) || user.email || ""
+  };
 }
 
 async function supabasePasswordLogin(email, password) {
@@ -569,9 +592,13 @@ module.exports = async function handler(req, res) {
     }
 
     if (pathname === "/v1/reports/top-products" && req.method === "GET") {
+      const url = new URL(req.url, "http://localhost");
+      const period = url.searchParams.get("period") || "month";
+      const days = period === "day" ? 0 : period === "week" ? 6 : 30;
+      const start = startOfDaysAgoIso(days);
       const items = await sbSelect(
         "order_items",
-        `select=sku,name,quantity,line_total,orders!inner(store_id)&orders.store_id=eq.${ctx.storeId}`
+        `select=sku,name,quantity,line_total,orders!inner(store_id,created_at,status)&orders.store_id=eq.${ctx.storeId}&orders.created_at=gte.${encode(start)}&orders.status=eq.paid`
       );
       const bucket = new Map();
       items.forEach((it) => {
@@ -581,7 +608,39 @@ module.exports = async function handler(req, res) {
         bucket.set(it.sku, cur);
       });
       const top = Array.from(bucket.values()).sort((a, b) => b.units_sold - a.units_sold).slice(0, 10);
-      sendJson(res, 200, { items: top });
+      sendJson(res, 200, { period, items: top, sold_skus: Array.from(bucket.keys()) });
+      return;
+    }
+
+    if (pathname === "/v1/reports/stock-list" && req.method === "GET") {
+      const [balances, prices] = await Promise.all([
+        sbSelect(
+          "inventory_balances",
+          `select=product_id,qty_on_hand,reorder_level,products!inner(sku,name)&store_id=eq.${ctx.storeId}`
+        ),
+        sbSelect(
+          "product_prices",
+          `select=product_id,mrp,selling_price,cost_price,effective_from&store_id=eq.${ctx.storeId}&order=effective_from.desc`
+        ).catch(() => [])
+      ]);
+      const priceByProduct = {};
+      prices.forEach((price) => {
+        if (!priceByProduct[price.product_id]) priceByProduct[price.product_id] = price;
+      });
+      const items = balances.map((balance) => {
+        const price = priceByProduct[balance.product_id] || {};
+        return {
+          sku: balance.products && balance.products.sku,
+          name: balance.products && balance.products.name,
+          quantity: Number(balance.qty_on_hand || 0),
+          reorder_level: Number(balance.reorder_level || 0),
+          mrp: Number(price.mrp || 0),
+          selling_price: Number(price.selling_price || 0),
+          cost_price: Number(price.cost_price || 0),
+          inventory_value: Number(balance.qty_on_hand || 0) * Number(price.cost_price || 0)
+        };
+      });
+      sendJson(res, 200, { items, total_value: items.reduce((total, item) => total + item.inventory_value, 0) });
       return;
     }
 
@@ -604,7 +663,7 @@ module.exports = async function handler(req, res) {
     if (pathname === "/v1/expenses" && req.method === "GET") {
       const rows = await sbSelect(
         "expenses",
-        `select=id,expense_date,category,description,amount,payment_mode,created_at&store_id=eq.${ctx.storeId}&order=expense_date.desc,created_at.desc&limit=100`
+        `select=id,expense_date,category,description,amount,payment_mode,recorded_by_name,created_at&store_id=eq.${ctx.storeId}&order=expense_date.desc,created_at.desc&limit=100`
       );
       sendJson(res, 200, { items: rows.map((row) => ({ ...row, amount: Number(row.amount || 0) })) });
       return;
@@ -612,6 +671,7 @@ module.exports = async function handler(req, res) {
 
     if (pathname === "/v1/expenses" && req.method === "POST") {
       const body = await parseBody(req);
+      const actor = await resolveActor(req);
       const amount = Number(body.amount || 0);
       const category = String(body.category || "").trim();
       if (!category || !(amount > 0)) {
@@ -625,9 +685,96 @@ module.exports = async function handler(req, res) {
         category,
         description: String(body.description || "").trim() || null,
         amount,
-        payment_mode: body.payment_mode || null
+        payment_mode: body.payment_mode || null,
+        recorded_by_user_id: actor ? actor.id : null,
+        recorded_by_name: actor ? (actor.name || actor.email) : null
       }]);
       sendJson(res, 201, { item: { ...inserted[0], amount: Number(inserted[0].amount || amount) } });
+      return;
+    }
+
+    if (pathname === "/v1/cash-session" && req.method === "GET") {
+      const sessions = await sbSelect(
+        "cash_sessions",
+        `select=*&store_id=eq.${ctx.storeId}&order=opened_at.desc&limit=1`
+      ).catch(() => []);
+      const session = sessions[0];
+      if (!session) {
+        sendJson(res, 200, { session: null });
+        return;
+      }
+      const openedAt = session.opened_at || nowIso();
+      const [cashPayments, cashExpenses] = await Promise.all([
+        sbSelect(
+          "order_payments",
+          `select=amount,orders!inner(store_id,created_at,status)&mode=eq.cash&orders.store_id=eq.${ctx.storeId}&orders.created_at=gte.${encode(openedAt)}&orders.status=eq.paid`
+        ).catch(() => []),
+        sbSelect(
+          "expenses",
+          `select=amount&store_id=eq.${ctx.storeId}&payment_mode=eq.cash&expense_date=gte.${encode(openedAt.slice(0, 10))}`
+        ).catch(() => [])
+      ]);
+      const cashSales = cashPayments.reduce((total, payment) => total + Number(payment.amount || 0), 0);
+      const cashExpensesTotal = cashExpenses.reduce((total, expense) => total + Number(expense.amount || 0), 0);
+      const expected = Number(session.opening_amount || 0) + cashSales - cashExpensesTotal;
+      sendJson(res, 200, {
+        session: {
+          ...session,
+          opening_amount: Number(session.opening_amount || 0),
+          closing_amount: session.closing_amount == null ? null : Number(session.closing_amount),
+          cash_sales: cashSales,
+          cash_expenses: cashExpensesTotal,
+          expected_closing: expected,
+          variance: session.closing_amount == null ? null : Number(session.closing_amount) - expected
+        }
+      });
+      return;
+    }
+
+    if (pathname === "/v1/cash-session" && req.method === "POST") {
+      const body = await parseBody(req);
+      const actor = await resolveActor(req);
+      const amount = Number(body.amount || 0);
+      if (!(amount >= 0)) {
+        sendJson(res, 400, { error: "valid amount required" });
+        return;
+      }
+      const active = await sbSelect(
+        "cash_sessions",
+        `select=*&store_id=eq.${ctx.storeId}&status=eq.open&order=opened_at.desc&limit=1`
+      ).catch(() => []);
+      if (body.action === "open") {
+        if (active.length) {
+          sendJson(res, 409, { error: "cash_session_already_open" });
+          return;
+        }
+        const inserted = await sbInsert("cash_sessions", [{
+          business_id: ctx.businessId,
+          store_id: ctx.storeId,
+          opening_amount: amount,
+          opened_by_user_id: actor ? actor.id : null,
+          opened_by_name: actor ? (actor.name || actor.email) : null,
+          status: "open"
+        }]);
+        sendJson(res, 201, { session: inserted[0] });
+        return;
+      }
+      if (body.action === "close") {
+        if (!active.length) {
+          sendJson(res, 409, { error: "no_open_cash_session" });
+          return;
+        }
+        const updated = await sbUpdate("cash_sessions", `id=eq.${active[0].id}`, {
+          closing_amount: amount,
+          closed_at: nowIso(),
+          closed_by_user_id: actor ? actor.id : null,
+          closed_by_name: actor ? (actor.name || actor.email) : null,
+          status: "closed"
+        });
+        sendJson(res, 200, { session: updated[0] });
+        return;
+      }
+      sendJson(res, 400, { error: "action must be open or close" });
       return;
     }
 
@@ -686,7 +833,7 @@ module.exports = async function handler(req, res) {
     if (pathname === "/v1/inventory/products" && req.method === "GET") {
       const rows = await sbSelect(
         "inventory_balances",
-        `select=product_id,qty_on_hand,reorder_level,location,products(sku,name)&store_id=eq.${ctx.storeId}`
+        `select=product_id,qty_on_hand,reorder_level,location,products(sku,name,hsn_code,tax_percent)&store_id=eq.${ctx.storeId}`
       );
       const prices = await sbSelect(
         "product_prices",
@@ -702,6 +849,8 @@ module.exports = async function handler(req, res) {
         products: rows.map((r) => ({
           sku: r.products ? r.products.sku : "",
           name: r.products ? r.products.name : "",
+          hsn: r.products ? r.products.hsn_code || "" : "",
+          tax_percent: r.products ? Number(r.products.tax_percent || 0) : 0,
           qty: Number(r.qty_on_hand || 0),
           reorder_level: Number(r.reorder_level || 0),
           location: r.location || "",
@@ -848,6 +997,7 @@ module.exports = async function handler(req, res) {
       }
       await sbUpdate("products", `id=eq.${product.id}`, {
         name: String(body.name || "").trim() || sku,
+        hsn_code: String(body.hsn || "").trim() || null,
         tax_percent: Number(body.tax_percent || 0)
       });
       await sbInsert("product_prices", [{
@@ -861,7 +1011,12 @@ module.exports = async function handler(req, res) {
       }]);
       const balance = (await sbSelect("inventory_balances", `select=id&store_id=eq.${ctx.storeId}&product_id=eq.${product.id}&limit=1`))[0];
       if (balance) {
+        const requestedQty = Number(body.qty);
+        const nextQty = Number.isFinite(requestedQty) && requestedQty >= 0
+          ? requestedQty
+          : undefined;
         await sbUpdate("inventory_balances", `id=eq.${balance.id}`, {
+          ...(nextQty === undefined ? {} : { qty_on_hand: nextQty }),
           reorder_level: Number(body.reorder_level || 0),
           location: String(body.location || "").trim() || null
         });
@@ -1067,16 +1222,29 @@ module.exports = async function handler(req, res) {
 
     // ------------------------- Integrations -------------------------
     if (pathname === "/v1/integrations/status" && req.method === "GET") {
-      const rows = await sbSelect("integrations", `select=provider,is_enabled,config&business_id=eq.${ctx.businessId}`);
+      const [rows, syncRuns] = await Promise.all([
+        sbSelect("integrations", `select=provider,is_enabled,config&business_id=eq.${ctx.businessId}`),
+        sbSelect(
+          "google_sheets_sync_runs",
+          `select=status,sales_rows,expense_rows,error_message,completed_at&business_id=eq.${ctx.businessId}&order=completed_at.desc&limit=1`
+        ).catch(() => [])
+      ]);
       const whatsapp = rows.find((r) => r.provider === "whatsapp");
       const sheets = rows.find((r) => r.provider === "google_sheets");
+      const lastSync = syncRuns[0] || null;
       sendJson(res, 200, {
         whatsapp_status: whatsapp ? (whatsapp.is_enabled ? "Connected" : "Disabled") : "",
         whatsapp_templates: whatsapp && whatsapp.config ? whatsapp.config.templates : null,
         whatsapp_delivery_success: whatsapp && whatsapp.config ? whatsapp.config.delivery_success : "",
         sheet_name: sheets && sheets.config ? sheets.config.workbook : "",
         sheet_schedule: sheets && sheets.config ? sheets.config.schedule : "",
-        sheet_last_run: sheets && sheets.config ? sheets.config.last_run : "",
+        sheet_last_run: lastSync ? lastSync.completed_at : (sheets && sheets.config ? sheets.config.last_run : ""),
+        sheet_sync_status: lastSync ? lastSync.status : "not_run",
+        sheet_sync_detail: lastSync
+          ? (lastSync.status === "success"
+            ? `${lastSync.sales_rows || 0} sales, ${lastSync.expense_rows || 0} expenses backed up`
+            : (lastSync.error_message || "Backup failed"))
+          : "No backup run recorded yet",
         webhook_retries: null,
         idempotency_conflicts: null,
         failed_signatures: null
@@ -1190,6 +1358,7 @@ module.exports = async function handler(req, res) {
     // ------------------------- POS sale -------------------------
     if (pathname === "/v1/pos/sales" && req.method === "POST") {
       const body = await parseBody(req);
+      const actor = await resolveActor(req);
       const channel = body.channel === "online" ? "online" : "in_store";
       const totals = body.totals || {};
       const orderNo = `SALE-${Date.now()}`;
@@ -1235,7 +1404,9 @@ module.exports = async function handler(req, res) {
           subtotal: Number(totals.subtotal || 0),
           tax_amount: Number(totals.tax_amount || 0),
           discount_amount: Number(totals.discount_amount || 0),
-          total_amount: Number(totals.total_amount || 0)
+          total_amount: Number(totals.total_amount || 0),
+          sold_by_user_id: actor ? actor.id : null,
+          sold_by_name: actor ? (actor.name || actor.email) : null
         }
       ]);
       const orderId = insertedOrder[0].id;

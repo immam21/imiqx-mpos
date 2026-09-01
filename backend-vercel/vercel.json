@@ -1,9 +1,12 @@
 {
   "functions": {
     "api/**/*.js": {
-      "maxDuration": 10
+      "maxDuration": 60
     }
   },
+  "crons": [
+    { "path": "/api/cron/backup", "schedule": "0 */2 * * *" }
+  ],
   "rewrites": [
     { "source": "/v1/:path*", "destination": "/api/router?route=:path*" },
     { "source": "/api/v1/:path*", "destination": "/api/router?route=:path*" },

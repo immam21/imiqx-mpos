@@ -276,6 +276,9 @@
     font-size: 12px;
     font-weight: 600;
     padding: 8px 12px;
+    min-height: 40px;
+    min-width: 40px;
+    line-height: 1.2;
     cursor: pointer;
     transition: all 180ms ease;
   }
@@ -495,6 +498,24 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .page-loading {
+    display: none;
+    align-items: center;
+    gap: 7px;
+    color: var(--color-muted-foreground);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .page-loading.show { display: inline-flex; }
+  .loading-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid #CBD5E1;
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: spin 700ms linear infinite;
+  }
   .modal-backdrop {
     position: fixed;
     inset: 0;
@@ -514,6 +535,7 @@
     box-shadow: var(--shadow-md);
     padding: 14px;
   }
+  .stock-modal-card { width: min(860px, 100%); max-height: min(760px, calc(100dvh - 32px)); overflow-y: auto; }
   .modal-title {
     margin: 0;
     font-size: 16px;
@@ -554,6 +576,7 @@
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
   }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   @media (max-width: 1180px) {
     .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -576,6 +599,10 @@
     .top-actions { width: 100%; justify-content: flex-start; }
     .field { width: 100%; }
     .field input, .field select { width: 100%; min-width: 0; }
+    .grid .btn { width: 100%; }
+    .modal-actions { flex-wrap: wrap; }
+    .modal-actions .btn { flex: 1 1 140px !important; }
+    .table-wrap .btn { min-height: 36px; min-width: 36px; padding: 7px 9px; }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -634,6 +661,7 @@
           </select>
         </label>
         <div class="auth-meta" id="auth-status">Not signed in</div>
+        <div class="page-loading" id="page-loading" role="status" aria-live="polite" aria-label="Loading latest data"><span class="loading-spinner" aria-hidden="true"></span><span>Updating</span></div>
         <button class="btn" type="button" id="auth-toggle">Login</button>
         <label class="field" aria-label="Universal search">
           <span aria-hidden="true">Search</span>
@@ -674,6 +702,10 @@
   </div>
 </div>
 
+<div id="stock-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="stock-modal-title">
+  <div class="modal-card stock-modal-card" id="stock-modal-content"></div>
+</div>
+
 <div id="scanner-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="scanner-title">
   <div class="modal-card">
     <h2 id="scanner-title" class="modal-title">Scan Barcode</h2>
@@ -682,6 +714,18 @@
     <div id="scanner-error" class="muted" style="font-size:12px; margin-top:8px;"></div>
     <div class="modal-actions">
       <button id="scanner-close" class="btn" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="order-review-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="order-review-title">
+  <div class="modal-card">
+    <h2 id="order-review-title" class="modal-title">Confirm Order</h2>
+    <p class="muted" style="font-size:12px; margin:6px 0 8px;">Review the bill before recording payment.</p>
+    <div id="order-review-summary" style="display:grid; gap:8px;"></div>
+    <div class="modal-actions">
+      <button class="btn" type="button" data-action="close-order-review">Back to Cart</button>
+      <button class="btn primary" type="button" data-action="submit-confirmed-order" id="order-review-submit">Confirm &amp; Mark Paid</button>
     </div>
   </div>
 </div>
@@ -740,8 +784,10 @@
     promotions: "/v1/promotions/campaigns",
     reports: "/v1/reports/tax-summary",
     topProducts: "/v1/reports/top-products",
+    stockReport: "/v1/reports/stock-list",
     reconciliation: "/v1/reports/reconciliation",
     expenses: "/v1/expenses",
+    cashSession: "/v1/cash-session",
     integrations: "/v1/integrations/status",
     whatsappEvents: "/v1/integrations/whatsapp/events",
     whatsappReceipt: "/v1/integrations/whatsapp/send-receipt",
@@ -773,6 +819,7 @@
   };
 
   const CUST_STATE = { filter: "", detail: null };
+  const REPORT_STATE = { period: "month" };
   let INVENTORY_EDIT = null;
 
   const appState = {
@@ -788,12 +835,14 @@
     promotions: null,
     reports: null,
     topProducts: null,
+    stockReport: null,
     reconciliation: null,
     integrations: null,
     whatsappEvents: null,
     settings: null,
     storefront: null,
-    expenses: null
+    expenses: null,
+    cashSession: null
   };
 
   const AUTH_KEYS = {
@@ -818,6 +867,8 @@
   let refreshTimer = null;
   let idleCheckTimer = null;
   let absoluteTimer = null;
+  let pendingPageLoads = 0;
+  let PENDING_ORDER = null;
 
   function isSupabaseConfigured() {
     return Boolean(APP_CONFIG.supabaseUrl && APP_CONFIG.supabaseAnonKey);
@@ -1129,10 +1180,12 @@
       if (tabId === "customers") appState.customers = await apiFetch(API_ENDPOINTS.customers);
       if (tabId === "promotions") appState.promotions = await apiFetch(API_ENDPOINTS.promotions);
       if (tabId === "reports") {
-        [appState.reports, appState.topProducts, appState.reconciliation] = await Promise.all([
+        [appState.reports, appState.topProducts, appState.stockReport, appState.reconciliation, appState.cashSession] = await Promise.all([
           apiFetch(API_ENDPOINTS.reports),
-          apiFetch(API_ENDPOINTS.topProducts),
-          apiFetch(API_ENDPOINTS.reconciliation)
+          apiFetch(`${API_ENDPOINTS.topProducts}?period=${REPORT_STATE.period}`),
+          apiFetch(API_ENDPOINTS.stockReport),
+          apiFetch(API_ENDPOINTS.reconciliation),
+          apiFetch(API_ENDPOINTS.cashSession)
         ]);
       }
       if (tabId === "integrations") {
@@ -1318,7 +1371,7 @@
     }
   }
 
-  async function posConfirmOrder() {
+  function posConfirmOrder() {
     if (!POS_STATE.cart.length) {
       showToast("Cart is empty");
       return;
@@ -1336,7 +1389,13 @@
     }
     const markPaid = POS_STATE.markPaid;
     const t = posTotals();
-    const payload = {
+    PENDING_ORDER = {
+      totals: t,
+      customer: { name: custName, phone: custPhone, place: custPlace },
+      items: POS_STATE.cart.map((l) => ({ ...l })),
+      mode: POS_STATE.paymentMode,
+      paid: markPaid,
+      payload: {
       store_id: appState.currentStoreId,
       business_id: APP_CONFIG.businessId,
       channel: "in_store",
@@ -1351,16 +1410,54 @@
       })),
       totals: { subtotal: t.subtotal, tax_amount: t.tax, discount_amount: 0, total_amount: t.total },
       payments: markPaid ? [{ mode: POS_STATE.paymentMode, amount: t.total }] : []
+      }
     };
+    openOrderReview(PENDING_ORDER);
+  }
+
+  function openOrderReview(order) {
+    const modal = document.getElementById("order-review-modal");
+    const summary = document.getElementById("order-review-summary");
+    const submit = document.getElementById("order-review-submit");
+    if (!modal || !summary || !submit) return;
+    summary.innerHTML = `
+      <div class="mono" style="font-size:12px; padding:10px; background:#F8FAFC; border-radius:8px; display:grid; gap:6px;">
+        <div style="display:flex; justify-content:space-between; gap:12px;"><span>Customer</span><strong>${escapeAttr(order.customer.name)}</strong></div>
+        <div style="display:flex; justify-content:space-between; gap:12px;"><span>Mobile</span><span>${escapeAttr(order.customer.phone)}</span></div>
+        <div style="display:flex; justify-content:space-between; gap:12px;"><span>Payment</span><strong>${order.paid ? String(order.mode).toUpperCase() : "PENDING"}</strong></div>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>Item</th><th>Qty</th><th>Amount</th></tr></thead><tbody>${order.items.map((line) => `<tr><td>${escapeAttr(line.name)}</td><td class="mono">${line.qty}</td><td class="mono">${money(line.qty * line.unit_price)}</td></tr>`).join("")}</tbody></table></div>
+      <div class="mono" style="padding:10px; background:#F8FAFC; border-radius:8px; display:grid; gap:6px;">
+        <div style="display:flex; justify-content:space-between;"><span>Subtotal</span><span>${money(order.totals.subtotal)}</span></div>
+        <div style="display:flex; justify-content:space-between;"><span>GST</span><span>${money(order.totals.tax)}</span></div>
+        <div style="display:flex; justify-content:space-between; font-weight:700;"><span>Total</span><span>${money(order.totals.total)}</span></div>
+      </div>`;
+    submit.textContent = order.paid ? "Confirm & Mark Paid" : "Confirm Order";
+    modal.classList.add("show");
+  }
+
+  function closeOrderReview() {
+    document.getElementById("order-review-modal")?.classList.remove("show");
+    PENDING_ORDER = null;
+  }
+
+  async function submitConfirmedOrder() {
+    const pending = PENDING_ORDER;
+    if (!pending) return;
+    const submit = document.getElementById("order-review-submit");
+    if (submit) {
+      submit.disabled = true;
+      submit.textContent = "Saving...";
+    }
     try {
-      const data = await apiFetch(API_ENDPOINTS.posSales, { method: "POST", body: JSON.stringify(payload) });
+      const data = await apiFetch(API_ENDPOINTS.posSales, { method: "POST", body: JSON.stringify(pending.payload) });
       const sale = {
         sale_id: data.sale_id,
-        items: POS_STATE.cart.map((l) => ({ ...l })),
-        totals: t,
-        customer: { name: custName, phone: custPhone, place: custPlace },
-        mode: POS_STATE.paymentMode,
-        paid: markPaid,
+        items: pending.items,
+        totals: pending.totals,
+        customer: pending.customer,
+        mode: pending.mode,
+        paid: pending.paid,
         at: new Date()
       };
       POS_STATE.lastSale = sale;
@@ -1374,9 +1471,14 @@
       POS_STATE.markPaid = true;
       await loadPosCatalog();
       posRerender();
+      closeOrderReview();
       openOrderConfirmed(sale);
     } catch (err) {
       showToast("Order failed: " + (err.message || "error"));
+      if (submit) {
+        submit.disabled = false;
+        submit.textContent = pending.paid ? "Confirm & Mark Paid" : "Confirm Order";
+      }
     }
   }
 
@@ -1773,6 +1875,43 @@
     return el && el.value ? el.value.trim() : "";
   }
 
+  function escapeAttr(value) {
+    return String(value || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function openStockModal(product = null) {
+    INVENTORY_EDIT = product;
+    const edit = INVENTORY_EDIT;
+    document.getElementById("stock-modal-content").innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+        <h2 id="stock-modal-title" class="modal-title">${edit ? `Edit ${escapeAttr(edit.sku)}` : "Add Stock"}</h2>
+        <button class="btn" type="button" data-action="close-stock-modal">Close</button>
+      </div>
+      <div class="auth-form" style="grid-template-columns:repeat(2,minmax(0,1fr));">
+        <label>Product Code / SKU<input id="stock-sku" type="text" placeholder="e.g. TS-1KG" value="${escapeAttr(edit && edit.sku)}" ${edit ? "readonly" : ""} /></label>
+        <label>Product Name<input id="stock-name" type="text" placeholder="e.g. Tata Salt 1kg" value="${escapeAttr(edit && edit.name)}" /></label>
+        <label>Price / MRP (₹)<input id="stock-price" type="number" min="0" step="0.01" value="${edit ? edit.mrp || 0 : ""}" /></label>
+        <label>Sale Price (₹)<input id="stock-offer" type="number" min="0" step="0.01" value="${edit ? edit.price || 0 : ""}" /></label>
+        <label>Cost Price (₹)<input id="stock-cost" type="number" min="0" step="0.01" value="${edit ? edit.cost_price || 0 : ""}" /></label>
+        <label>GST %<input id="stock-tax" type="number" min="0" max="28" step="0.01" value="${edit ? edit.tax_percent || 0 : ""}" /></label>
+        <label>Quantity<input id="stock-qty" type="number" min="0" step="1" value="${edit ? edit.qty || 0 : ""}" /></label>
+        <label>Reorder Level<input id="stock-reorder" type="number" min="0" step="1" value="${edit ? edit.reorder_level || 0 : ""}" /></label>
+        <label>Location<input id="stock-location" type="text" placeholder="Aisle / Rack" value="${escapeAttr(edit && edit.location)}" /></label>
+        <label>HSN<input id="stock-hsn" type="text" placeholder="HSN code" value="${escapeAttr(edit && edit.hsn)}" /></label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" type="button" data-action="close-stock-modal">Cancel</button>
+        ${edit ? `<button class="btn primary" type="button" data-action="save-inventory-edit">Save Changes</button>` : `<button class="btn" type="button" data-action="add-stock">Add Stock</button><button class="btn primary" type="button" data-action="add-stock-print">Add & Print Label</button>`}
+      </div>`;
+    document.getElementById("stock-modal").classList.add("show");
+    document.getElementById("stock-name").focus();
+  }
+
+  function closeStockModal() {
+    document.getElementById("stock-modal").classList.remove("show");
+    INVENTORY_EDIT = null;
+  }
+
   async function addStock(printAfter) {
     const sku = fieldVal("stock-sku");
     const name = fieldVal("stock-name");
@@ -1793,6 +1932,7 @@
         method: "POST",
         body: JSON.stringify({ sku, name, price, offer_price: offer, cost_price: cost, tax_percent: tax, qty, reorder_level: reorder, location, hsn, barcode: sku })
       });
+      closeStockModal();
       showToast(`Stock added: ${sku} (+${qty})`);
       appState.loaded.inventory = false;
       appState.loaded.dashboard = false;
@@ -1819,11 +1959,14 @@
           price: Number(fieldVal("stock-offer") || 0),
           cost_price: Number(fieldVal("stock-cost") || 0),
           tax_percent: Number(fieldVal("stock-tax") || 0),
+          hsn: fieldVal("stock-hsn"),
+          qty: Number(fieldVal("stock-qty")),
           reorder_level: Number(fieldVal("stock-reorder") || 0),
           location: fieldVal("stock-location")
         })
       });
       INVENTORY_EDIT = null;
+      closeStockModal();
       appState.loaded.inventory = false;
       showToast(`Inventory updated: ${sku}`);
       setActive("inventory");
@@ -1857,6 +2000,47 @@
     } catch (err) {
       showToast("Expense save failed: " + (err.message || "error"));
     }
+  }
+
+  async function saveCashSession(action) {
+    const inputId = action === "open" ? "cash-opening-amount" : "cash-closing-amount";
+    const amount = Number(fieldVal(inputId) || 0);
+    if (!(amount >= 0)) {
+      showToast("Enter a valid cash amount");
+      return;
+    }
+    try {
+      await apiFetch(API_ENDPOINTS.cashSession, {
+        method: "POST",
+        body: JSON.stringify({ action, amount })
+      });
+      appState.loaded.reports = false;
+      showToast(action === "open" ? "Cash drawer opened" : "Cash drawer closed");
+      setActive("reports");
+    } catch (err) {
+      showToast((action === "open" ? "Opening" : "Closing") + " cash drawer failed: " + (err.message || "error"));
+    }
+  }
+
+  function setReportPeriod(period) {
+    REPORT_STATE.period = ["day", "week", "month"].includes(period) ? period : "month";
+    appState.loaded.reports = false;
+    setActive("reports");
+  }
+
+  function exportBusinessReport() {
+    const top = (appState.topProducts && appState.topProducts.items) || [];
+    const stock = (appState.stockReport && appState.stockReport.items) || [];
+    const soldSkus = new Set((appState.topProducts && appState.topProducts.sold_skus) || []);
+    const rows = [["Report", "SKU", "Item", "Quantity", "MRP", "Sale Price", "Cost Price", "Value", "Units Sold", "Revenue"]];
+    top.forEach((item) => rows.push(["Top selling", item.sku, item.name, "", "", "", "", "", item.units_sold, item.revenue]));
+    stock.forEach((item) => rows.push([soldSkus.has(item.sku) ? "Stock list" : "Dead stock", item.sku, item.name, item.quantity, item.mrp, item.selling_price, item.cost_price, item.inventory_value, "", ""]));
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    link.download = `business-report-${REPORT_STATE.period}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
   }
 
   const NAV = [
@@ -2068,24 +2252,11 @@
     inventory() {
       const inventoryData = appState.inventory || { products: [] };
       const ledgerData = appState.inventoryLedger || { entries: [] };
-      const edit = INVENTORY_EDIT;
       return `
         <div class="section card reveal">
-          <h3 style="margin:0 0 10px;">${edit ? `Edit ${edit.sku}` : "Add Stock"}</h3>
-          <div class="grid four-col">
-            <label class="field"><span aria-hidden="true">Product Code / SKU</span><input id="stock-sku" type="text" placeholder="e.g. TS-1KG" value="${edit ? edit.sku : ""}" ${edit ? "readonly" : ""} /></label>
-            <label class="field"><span aria-hidden="true">Product Name</span><input id="stock-name" type="text" placeholder="e.g. Tata Salt 1kg" value="${edit ? edit.name : ""}" /></label>
-            <label class="field"><span aria-hidden="true">Price / MRP (₹)</span><input id="stock-price" type="number" min="0" step="0.01" placeholder="0.00" value="${edit ? edit.mrp || 0 : ""}" /></label>
-            <label class="field"><span aria-hidden="true">Sale Price (₹)</span><input id="stock-offer" type="number" min="0" step="0.01" placeholder="0.00" value="${edit ? edit.price || 0 : ""}" /></label>
-            <label class="field"><span aria-hidden="true">Cost Price (₹)</span><input id="stock-cost" type="number" min="0" step="0.01" placeholder="0.00" value="${edit ? edit.cost_price || 0 : ""}" /></label>
-            <label class="field"><span aria-hidden="true">GST %</span><input id="stock-tax" type="number" min="0" max="28" step="0.01" placeholder="0" /></label>
-            <label class="field"><span aria-hidden="true">Quantity</span><input id="stock-qty" type="number" min="1" step="1" placeholder="0" ${edit ? "disabled" : ""} /></label>
-            <label class="field"><span aria-hidden="true">Reorder Level</span><input id="stock-reorder" type="number" min="0" step="1" placeholder="0" value="${edit ? edit.reorder_level || 0 : ""}" /></label>
-            <label class="field"><span aria-hidden="true">Location</span><input id="stock-location" type="text" placeholder="Aisle / Rack" value="${edit ? edit.location || "" : ""}" /></label>
-            <label class="field"><span aria-hidden="true">HSN</span><input id="stock-hsn" type="text" placeholder="HSN code" /></label>
-          </div>
-          <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
-            ${edit ? `<button class="btn primary" type="button" data-action="save-inventory-edit">Save Changes</button><button class="btn" type="button" data-action="cancel-inventory-edit">Cancel</button>` : `<button class="btn" type="button" data-action="add-stock">Add Stock</button><button class="btn primary" type="button" data-action="add-stock-print">Add Stock & Print Label</button>`}
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+            <div><h3 style="margin:0;">Stock Management</h3><p class="muted" style="margin:4px 0 0;">Add new products or update any existing stock details.</p></div>
+            <button class="btn primary" type="button" data-action="open-stock-add">Add Stock</button>
           </div>
         </div>
 
@@ -2100,7 +2271,7 @@
               <tbody>
                 ${(inventoryData.products || []).map((p) => {
                   const cls = Number(p.qty) <= Number(p.reorder_level) ? "warn" : "good";
-                  const enc = encodeURIComponent(JSON.stringify({ sku: p.sku, name: p.name, price: p.price || 0, mrp: p.mrp || 0, cost_price: p.cost_price || 0, reorder_level: p.reorder_level || 0, location: p.location || "" }));
+                  const enc = encodeURIComponent(JSON.stringify({ sku: p.sku, name: p.name, hsn: p.hsn || "", tax_percent: p.tax_percent || 0, qty: p.qty || 0, price: p.price || 0, mrp: p.mrp || 0, cost_price: p.cost_price || 0, reorder_level: p.reorder_level || 0, location: p.location || "" }));
                   const mrpCell = (p.mrp && p.mrp > (p.price || 0)) ? `<span style="text-decoration:line-through; color:var(--color-muted-foreground);">${money(p.mrp)}</span>` : money(p.mrp || p.price || 0);
                   return `<tr><td><input type="checkbox" class="label-select" data-product="${enc}" /></td><td class="mono">${p.sku}</td><td>${p.name}</td><td class="mono">${money(p.cost_price || 0)}</td><td class="mono">${mrpCell}</td><td class="mono">${money(p.price || 0)}</td><td>${p.qty}</td><td>${p.reorder_level}</td><td><span class="chip ${cls}">${Number(p.qty) <= Number(p.reorder_level) ? "Low" : "Healthy"}</span></td><td style="display:flex; gap:6px;"><button class="btn" type="button" data-action="edit-inventory" data-product="${enc}">Edit</button><button class="btn" type="button" data-action="print-label" data-product="${enc}">Print</button></td></tr>`;
                 }).join("") || `<tr><td colspan="10">No stock data.</td></tr>`}
@@ -2140,7 +2311,7 @@
         </div>
         <article class="card reveal">
           <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;"><h3 class="panel-title" style="margin:0;">Recent Expenses</h3><span class="chip warn">${money(total)} recorded</span></div>
-          <div class="table-wrap"><table><thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Payment</th><th>Amount</th></tr></thead><tbody>${expenses.map((item) => `<tr><td>${item.expense_date}</td><td>${item.category}</td><td>${item.description || "-"}</td><td>${item.payment_mode || "-"}</td><td class="mono">${money(item.amount)}</td></tr>`).join("") || `<tr><td colspan="5">No expenses recorded.</td></tr>`}</tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Recorded By</th><th>Payment</th><th>Amount</th></tr></thead><tbody>${expenses.map((item) => `<tr><td>${item.expense_date}</td><td>${item.category}</td><td>${item.description || "-"}</td><td>${item.recorded_by_name || "-"}</td><td>${item.payment_mode || "-"}</td><td class="mono">${money(item.amount)}</td></tr>`).join("") || `<tr><td colspan="6">No expenses recorded.</td></tr>`}</tbody></table></div>
         </article>`;
     },
 
@@ -2270,7 +2441,15 @@
       const rec = appState.reconciliation || { rows: [] };
       const top = appState.topProducts || { items: [] };
       const tax = appState.reports || {};
+      const cash = appState.cashSession && appState.cashSession.session;
+      const stock = appState.stockReport || { items: [], total_value: 0 };
+      const soldSkus = new Set(top.sold_skus || []);
+      const deadStock = (stock.items || []).filter((item) => !soldSkus.has(item.sku));
       return `
+        <div class="section card reveal" style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+          <div><h3 class="panel-title" style="margin-bottom:3px;">Sales & Stock Analysis</h3><div class="muted" style="font-size:12px;">${REPORT_STATE.period === "day" ? "Today" : REPORT_STATE.period === "week" ? "Last 7 days" : "Last 30 days"}</div></div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;"><button class="btn ${REPORT_STATE.period === "day" ? "primary" : ""}" type="button" data-action="report-period" data-period="day">Day</button><button class="btn ${REPORT_STATE.period === "week" ? "primary" : ""}" type="button" data-action="report-period" data-period="week">Week</button><button class="btn ${REPORT_STATE.period === "month" ? "primary" : ""}" type="button" data-action="report-period" data-period="month">Month</button><button class="btn" type="button" data-action="export-business-report">Export Excel</button></div>
+        </div>
         <div class="section grid three-col">
           <article class="card reveal"><h3 class="panel-title">Sales Report</h3><div class="alert-row"><span>Top products</span><span class="mono">${(top.items || []).length}</span></div><div class="alert-row"><span>Sales tax base</span><span class="mono">${money(Number(tax.taxable_value || 0))}</span></div></article>
           <article class="card reveal"><h3 class="panel-title">Operations Report</h3><div class="alert-row"><span>Reconciliation records</span><span class="mono">${(rec.rows || []).length}</span></div><div class="alert-row"><span>Unmatched settlements</span><span class="mono">${(rec.rows || []).filter((row) => Number(row.variance) !== 0).length}</span></div></article>
@@ -2291,8 +2470,22 @@
           </article>
 
           <article class="card reveal">
-            <h3 class="panel-title">Daily Close</h3>
-            <div class="muted">No cash session recorded yet.</div>
+            <h3 class="panel-title">Daily Cash Report</h3>
+            ${cash && cash.status === "open" ? `
+              <div class="mono" style="font-size:12px; display:grid; gap:7px;">
+                <div style="display:flex; justify-content:space-between;"><span>Opened by</span><span>${cash.opened_by_name || "-"}</span></div>
+                <div style="display:flex; justify-content:space-between;"><span>Opening cash</span><span>${money(Number(cash.opening_amount || 0))}</span></div>
+                <div style="display:flex; justify-content:space-between;"><span>Cash sales</span><span>${money(Number(cash.cash_sales || 0))}</span></div>
+                <div style="display:flex; justify-content:space-between;"><span>Cash expenses</span><span>-${money(Number(cash.cash_expenses || 0))}</span></div>
+                <div style="display:flex; justify-content:space-between; font-weight:700; border-top:1px dashed var(--color-border); padding-top:7px;"><span>Expected drawer</span><span>${money(Number(cash.expected_closing || 0))}</span></div>
+              </div>
+              <label class="field" style="margin-top:10px;"><span>Counted closing cash</span><input id="cash-closing-amount" inputmode="decimal" type="number" min="0" step="0.01" placeholder="0.00" /></label>
+              <div style="margin-top:10px;"><button class="btn primary" type="button" data-action="close-cash-session">Close Day</button></div>
+            ` : `
+              <p class="muted" style="font-size:12px;">Start the day by recording the cash counted in the drawer.</p>
+              <label class="field"><span>Opening cash</span><input id="cash-opening-amount" inputmode="decimal" type="number" min="0" step="0.01" placeholder="0.00" /></label>
+              <div style="margin-top:10px;"><button class="btn primary" type="button" data-action="open-cash-session">Start Day</button></div>
+            `}
           </article>
         </div>
 
@@ -2308,8 +2501,9 @@
           </div>
         </div>
 
-        <div class="section card reveal">
-          <h3 class="panel-title">Top Products</h3>
+        <div class="section grid two-col">
+          <article class="card reveal">
+          <h3 class="panel-title">Top Selling Items</h3>
           <div class="table-wrap">
             <table>
               <thead><tr><th>SKU</th><th>Name</th><th>Units Sold</th><th>Revenue</th></tr></thead>
@@ -2318,6 +2512,15 @@
               </tbody>
             </table>
           </div>
+          </article>
+          <article class="card reveal">
+            <h3 class="panel-title">Dead Stock (No Sales)</h3>
+            <div class="table-wrap"><table><thead><tr><th>SKU</th><th>Item</th><th>On Hand</th><th>Value</th></tr></thead><tbody>${deadStock.map((item) => `<tr><td class="mono">${item.sku}</td><td>${item.name}</td><td class="mono">${item.quantity}</td><td class="mono">${money(item.inventory_value)}</td></tr>`).join("") || `<tr><td colspan="4">No dead stock for this period.</td></tr>`}</tbody></table></div>
+          </article>
+        </div>
+        <div class="section card reveal">
+          <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap;"><h3 class="panel-title" style="margin:0;">Stock List</h3><span class="chip good">Inventory value ${money(Number(stock.total_value || 0))}</span></div>
+          <div class="table-wrap" style="margin-top:10px;"><table><thead><tr><th>SKU</th><th>Item</th><th>On Hand</th><th>MRP</th><th>Offer</th><th>Cost</th><th>Stock Value</th></tr></thead><tbody>${(stock.items || []).map((item) => `<tr><td class="mono">${item.sku}</td><td>${item.name}</td><td class="mono">${item.quantity}</td><td class="mono">${money(item.mrp)}</td><td class="mono">${money(item.selling_price)}</td><td class="mono">${money(item.cost_price)}</td><td class="mono">${money(item.inventory_value)}</td></tr>`).join("") || `<tr><td colspan="7">No stock records.</td></tr>`}</tbody></table></div>
         </div>
       `;
     },
@@ -2338,7 +2541,9 @@
             <h3 class="panel-title">Google Sheets Sync</h3>
             <div class="alert-row"><span>Linked workbook</span><span class="mono">${iData.sheet_name || "-"}</span></div>
             <div class="alert-row"><span>Schedule</span><span class="mono">${iData.sheet_schedule || "-"}</span></div>
-            <div class="alert-row"><span>Last run</span><span class="mono">${iData.sheet_last_run || "-"}</span></div>
+            <div class="alert-row"><span>Last sync</span><span class="mono">${iData.sheet_last_run ? new Date(iData.sheet_last_run).toLocaleString("en-IN") : "Never"}</span></div>
+            <div class="alert-row"><span>Status</span><span class="chip ${iData.sheet_sync_status === "success" ? "good" : iData.sheet_sync_status === "error" ? "danger" : "warn"}">${iData.sheet_sync_status === "success" ? "Success" : iData.sheet_sync_status === "error" ? "Error" : "Not run"}</span></div>
+            <div class="alert-row"><span>${iData.sheet_sync_status === "error" ? "Last error" : "Last result"}</span><span style="max-width:60%; text-align:right; overflow-wrap:anywhere;">${iData.sheet_sync_detail || "No backup run recorded yet"}</span></div>
             <button class="btn primary" type="button">Run Sync Now</button>
           </article>
           <article class="card reveal">
@@ -2449,6 +2654,11 @@
     window.setTimeout(() => el.classList.remove("show"), 1800);
   }
 
+  function setPageLoading(isLoading) {
+    pendingPageLoads = Math.max(0, pendingPageLoads + (isLoading ? 1 : -1));
+    document.getElementById("page-loading").classList.toggle("show", pendingPageLoads > 0);
+  }
+
   async function setActive(tabId) {
     appState.activeTab = tabId;
     const name = TITLES[tabId] || TITLES.dashboard;
@@ -2462,7 +2672,13 @@
 
     wireView(tabId);
     const wasLoaded = Boolean(appState.loaded[tabId]);
-    await hydrateTabData(tabId);
+    const needsData = !wasLoaded && tabId !== "pos";
+    if (needsData) setPageLoading(true);
+    try {
+      await hydrateTabData(tabId);
+    } finally {
+      if (needsData) setPageLoading(false);
+    }
     if (!wasLoaded && appState.loaded[tabId] && appState.activeTab === tabId) {
       document.getElementById("view-root").innerHTML = (page[tabId] || page.dashboard)();
       wireView(tabId);
@@ -2553,6 +2769,14 @@
         addStock(true);
         return;
       }
+      if (action === "open-stock-add") {
+        openStockModal();
+        return;
+      }
+      if (action === "close-stock-modal") {
+        closeStockModal();
+        return;
+      }
       if (action === "print-label") {
         try {
           const p = JSON.parse(decodeURIComponent(actionBtn.dataset.product || "%7B%7D"));
@@ -2576,7 +2800,7 @@
       if (action === "edit-inventory") {
         try {
           INVENTORY_EDIT = JSON.parse(decodeURIComponent(actionBtn.dataset.product || "%7B%7D"));
-          setActive("inventory");
+          openStockModal(INVENTORY_EDIT);
         } catch (_) {
           showToast("Unable to open inventory item");
         }
@@ -2587,12 +2811,27 @@
         return;
       }
       if (action === "cancel-inventory-edit") {
-        INVENTORY_EDIT = null;
-        setActive("inventory");
+        closeStockModal();
         return;
       }
       if (action === "save-expense") {
         saveExpense();
+        return;
+      }
+      if (action === "open-cash-session") {
+        saveCashSession("open");
+        return;
+      }
+      if (action === "close-cash-session") {
+        saveCashSession("close");
+        return;
+      }
+      if (action === "report-period") {
+        setReportPeriod(actionBtn.dataset.period);
+        return;
+      }
+      if (action === "export-business-report") {
+        exportBusinessReport();
         return;
       }
       if (action === "pos-add-item") {
@@ -2617,6 +2856,14 @@
       }
       if (action === "pos-confirm-order") {
         posConfirmOrder();
+        return;
+      }
+      if (action === "close-order-review") {
+        closeOrderReview();
+        return;
+      }
+      if (action === "submit-confirmed-order") {
+        submitConfirmedOrder();
         return;
       }
       if (action === "cust-save") {
@@ -2690,6 +2937,7 @@
     }
     if (event.key === "Escape") {
       setNavOpen(false);
+      closeStockModal();
       document.getElementById("auth-modal").classList.remove("show");
       closeScanner();
     }
@@ -2700,6 +2948,7 @@
   });
 
   const authModal = document.getElementById("auth-modal");
+  const stockModal = document.getElementById("stock-modal");
   const authForm = document.getElementById("auth-form");
 
   document.getElementById("auth-toggle").addEventListener("click", async () => {
@@ -2756,6 +3005,12 @@
   authModal.addEventListener("click", (event) => {
     if (event.target === authModal) {
       authModal.classList.remove("show");
+    }
+  });
+
+  stockModal.addEventListener("click", (event) => {
+    if (event.target === stockModal) {
+      closeStockModal();
     }
   });
 

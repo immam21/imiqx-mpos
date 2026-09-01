@@ -59,3 +59,12 @@ curl http://localhost:3000/api/v1/reports/dashboard
 - In serverless mode, in-memory state resets between cold starts.
 - For production, replace mock state with Supabase table reads/writes.
 - Do not store real secrets in committed files.
+
+## Google Sheets backup
+
+Vercel calls `/api/cron/backup` every two hours. Set `CRON_SECRET`,
+`GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`, and
+`GOOGLE_SHEETS_SPREADSHEET_ID` in Vercel. Share the target spreadsheet with
+the service-account email and create `Sales` and `Expenses` worksheets. The
+cron appends newly created rows, including the staff member who recorded each
+sale or expense.
