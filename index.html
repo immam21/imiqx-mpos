@@ -19,9 +19,9 @@
 <style>
   :root {
     --color-primary: #2563EB;
-    --color-secondary: #3B82F6;
-    --color-accent: #EA580C;
-    --color-background: #F8FAFC;
+    --color-secondary: #60A5FA;
+    --color-accent: #C2410C;
+    --color-background: #F4F7FB;
     --color-foreground: #1E293B;
     --color-card: #FFFFFF;
     --color-muted: #E9EFF8;
@@ -37,12 +37,12 @@
     --space-xl: 16px;
     --space-2xl: 24px;
     --space-3xl: 32px;
-    --radius-sm: 10px;
-    --radius-md: 14px;
-    --radius-lg: 18px;
-    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-    --shadow-md: 0 8px 20px rgba(37, 99, 235, 0.09), 0 2px 8px rgba(15, 23, 42, 0.06);
-    --sidebar-width: 254px;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 10px;
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+    --shadow-md: 0 10px 24px rgba(15, 23, 42, 0.08);
+    --sidebar-width: 268px;
   }
 
   * { box-sizing: border-box; }
@@ -50,10 +50,7 @@
   body {
     font-family: Inter, sans-serif;
     color: var(--color-foreground);
-    background:
-      radial-gradient(1000px 400px at 85% -20%, rgba(59, 130, 246, 0.18), transparent 70%),
-      radial-gradient(700px 260px at 0% 10%, rgba(234, 88, 12, 0.10), transparent 70%),
-      linear-gradient(180deg, #F6FAFF 0%, var(--color-background) 60%);
+    background: linear-gradient(135deg, #F7FAFE 0%, var(--color-background) 44%, #F0F5FC 100%);
     min-height: 100vh;
     overflow: hidden;
     padding-top: env(safe-area-inset-top);
@@ -97,14 +94,14 @@
     inset: 0 auto 0 0;
     width: var(--sidebar-width);
     max-width: min(86vw, var(--sidebar-width));
-    background: linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.96));
+    background: #172033;
     color: #DCE5F4;
     border-right: 1px solid rgba(255, 255, 255, 0.08);
     backdrop-filter: blur(16px);
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    box-shadow: 0 24px 48px rgba(15, 23, 42, 0.28);
+    box-shadow: 16px 0 32px rgba(15, 23, 42, 0.16);
     transform: translateX(calc(-100% - 12px));
     transition: transform 220ms ease;
     z-index: 80;
@@ -130,8 +127,8 @@
   .brand-mark {
     width: 34px;
     height: 34px;
-    border-radius: 10px;
-    background: linear-gradient(140deg, var(--color-primary), var(--color-secondary));
+    border-radius: var(--radius-sm);
+    background: var(--color-primary);
     color: #fff;
     font-weight: 700;
     display: grid;
@@ -150,8 +147,9 @@
     border: 0;
     background: transparent;
     color: #AFBDD3;
-    border-radius: 10px;
-    padding: 11px 12px;
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    min-height: 44px;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -164,8 +162,8 @@
   .nav-btn:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
   .nav-btn.active {
     color: #fff;
-    background: linear-gradient(90deg, rgba(37, 99, 235, 0.24), rgba(59, 130, 246, 0.10));
-    border: 1px solid rgba(59, 130, 246, 0.34);
+    background: rgba(37, 99, 235, 0.28);
+    border: 1px solid rgba(147, 197, 253, 0.32);
   }
 
   .role-card {
@@ -192,9 +190,9 @@
     top: 0;
     z-index: 30;
     border-bottom: 1px solid var(--color-border);
-    background: rgba(248, 250, 252, 0.85);
+    background: rgba(255, 255, 255, 0.9);
     backdrop-filter: blur(10px);
-    padding: 14px 20px;
+    padding: 12px 20px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -205,9 +203,9 @@
     border: 1px solid var(--color-border);
     background: rgba(255, 255, 255, 0.82);
     color: var(--color-foreground);
-    width: 42px;
-    height: 42px;
-    border-radius: 12px;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-sm);
     display: inline-grid;
     place-items: center;
     cursor: pointer;
@@ -229,7 +227,7 @@
   body.nav-open .menu-btn-lines { background: transparent; }
   body.nav-open .menu-btn-lines::before { transform: translateY(5px) rotate(45deg); }
   body.nav-open .menu-btn-lines::after { transform: translateY(-5px) rotate(-45deg); }
-  .title-wrap h1 { margin: 0; font-size: 26px; font-weight: 400; line-height: 1.1; }
+  .title-wrap h1 { margin: 0; font-size: 24px; font-weight: 400; line-height: 1.1; }
   .title-wrap p { margin: 4px 0 0; color: var(--color-muted-foreground); font-size: 12px; }
 
   .top-actions {
@@ -245,8 +243,8 @@
     gap: 8px;
     background: var(--color-card);
     border: 1px solid var(--color-border);
-    border-radius: 12px;
-    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    padding: 7px 9px;
     color: var(--color-muted-foreground);
   }
   .field input {
@@ -269,39 +267,46 @@
     gap: 6px;
   }
   .btn {
-    border-radius: 11px;
+    border-radius: var(--radius-sm);
     border: 1px solid var(--color-border);
     background: var(--color-card);
     color: var(--color-foreground);
     font-size: 12px;
     font-weight: 600;
     padding: 8px 12px;
-    min-height: 40px;
-    min-width: 40px;
+    min-height: 44px;
+    min-width: 44px;
     line-height: 1.2;
     cursor: pointer;
-    transition: all 180ms ease;
+    transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease, color 180ms ease;
   }
-  .btn:hover { box-shadow: var(--shadow-sm); }
+  .btn:hover { border-color: #B8C5D6; box-shadow: var(--shadow-sm); }
+  .btn:active { box-shadow: none; }
+  .btn:disabled { cursor: not-allowed; opacity: 0.58; box-shadow: none; }
   .btn:focus-visible, .nav-btn:focus-visible, .tab-btn:focus-visible {
     outline: 2px solid #93C5FD;
     outline-offset: 2px;
   }
   .btn.primary {
-    border-color: #C2410C;
-    background: linear-gradient(180deg, #F97316, var(--color-accent));
-    color: #111827;
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: #fff;
+  }
+  .btn.compact {
+    min-width: auto;
+    min-height: 36px;
+    padding: 6px 10px;
   }
 
   .content {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 18px 20px 90px;
+    padding: 20px 24px 48px;
   }
 
   .section {
-    margin-bottom: 16px;
+    margin-bottom: 20px;
   }
   .grid {
     display: grid;
@@ -313,16 +318,15 @@
   .four-col { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
   .card {
-    background: linear-gradient(160deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.74));
-    border: 1px solid rgba(226, 232, 240, 0.92);
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
-    box-shadow: var(--shadow-sm);
-    backdrop-filter: blur(14px);
-    padding: 14px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+    padding: 16px;
   }
 
-  .kpi-label { font-size: 11px; color: var(--color-muted-foreground); }
-  .kpi-value { font-size: 24px; font-weight: 700; margin-top: 8px; }
+  .kpi-label { font-size: 11px; color: var(--color-muted-foreground); font-weight: 600; }
+  .kpi-value { font-size: 24px; font-weight: 700; margin-top: 8px; letter-spacing: 0; }
   .kpi-trend { font-size: 11px; margin-top: 5px; }
 
   .good { color: var(--color-success); }
@@ -333,7 +337,7 @@
     margin: 0 0 10px;
     font-size: 13px;
     font-weight: 700;
-    letter-spacing: 0.01em;
+    color: #172033;
   }
 
   .bars {
@@ -373,8 +377,8 @@
   .alert-row:last-child { border-bottom: 0; }
 
   .chip {
-    border-radius: 999px;
-    padding: 5px 10px;
+    border-radius: var(--radius-sm);
+    padding: 5px 8px;
     font-size: 11px;
     font-weight: 600;
     border: 1px solid var(--color-border);
@@ -398,18 +402,18 @@
     padding: 8px 10px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    background: #F8FAFC;
+    background: #F6F8FB;
   }
   tbody td {
     border-top: 1px solid var(--color-border);
-    padding: 10px;
+    padding: 11px 10px;
     font-size: 12.5px;
     vertical-align: top;
   }
 
   .tabbar { display: flex; gap: 8px; margin-bottom: 10px; }
   .tab-btn {
-    border-radius: 9px;
+    border-radius: var(--radius-sm);
     border: 1px solid var(--color-border);
     background: #fff;
     color: var(--color-muted-foreground);
@@ -531,9 +535,9 @@
     width: min(440px, 100%);
     background: #fff;
     border: 1px solid var(--color-border);
-    border-radius: 16px;
-    box-shadow: var(--shadow-md);
-    padding: 14px;
+    border-radius: var(--radius-md);
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.2);
+    padding: 18px;
   }
   .stock-modal-card { width: min(860px, 100%); max-height: min(760px, calc(100dvh - 32px)); overflow-y: auto; }
   .modal-title {
@@ -586,7 +590,7 @@
 
   @media (max-width: 900px) {
     .topbar { padding: 12px; }
-    .content { padding: 12px 12px 94px; }
+    .content { padding: 16px 16px 32px; }
     .field input { width: 130px; }
     .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .three-col, .four-col { grid-template-columns: 1fr; }
@@ -600,9 +604,15 @@
     .field { width: 100%; }
     .field input, .field select { width: 100%; min-width: 0; }
     .grid .btn { width: 100%; }
+    .grid .btn.compact { width: auto; justify-self: start; }
     .modal-actions { flex-wrap: wrap; }
     .modal-actions .btn { flex: 1 1 140px !important; }
-    .table-wrap .btn { min-height: 36px; min-width: 36px; padding: 7px 9px; }
+    .table-wrap .btn { min-height: 44px; min-width: 44px; padding: 8px 10px; }
+    .content { padding: 14px 12px 28px; }
+    .section { margin-bottom: 14px; }
+    .card { padding: 14px; }
+    .title-wrap h1 { font-size: 21px; }
+    .top-actions > .auth-meta, .top-actions > .page-loading { order: -1; }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -784,6 +794,7 @@
     promotions: "/v1/promotions/campaigns",
     reports: "/v1/reports/tax-summary",
     topProducts: "/v1/reports/top-products",
+    salesByStaff: "/v1/reports/sales-by-staff",
     stockReport: "/v1/reports/stock-list",
     reconciliation: "/v1/reports/reconciliation",
     expenses: "/v1/expenses",
@@ -810,7 +821,7 @@
   };
 
   const POS_STATE = {
-    customer: { name: "", phone: "", place: "", existing: false, searched: false },
+    customer: { mode: "new", name: "", phone: "", place: "", existing: false, searched: false, lookupPhone: "" },
     cart: [],
     paymentMode: "cash",
     markPaid: true,
@@ -820,6 +831,7 @@
 
   const CUST_STATE = { filter: "", detail: null };
   const REPORT_STATE = { period: "month" };
+  const DASHBOARD_STATE = { period: "today" };
   let INVENTORY_EDIT = null;
 
   const appState = {
@@ -835,6 +847,7 @@
     promotions: null,
     reports: null,
     topProducts: null,
+    salesByStaff: null,
     stockReport: null,
     reconciliation: null,
     integrations: null,
@@ -1168,7 +1181,7 @@
     }
 
     try {
-      if (tabId === "dashboard") appState.dashboard = await apiFetch(API_ENDPOINTS.dashboard);
+      if (tabId === "dashboard") appState.dashboard = await apiFetch(`${API_ENDPOINTS.dashboard}?period=${DASHBOARD_STATE.period}`);
       if (tabId === "orders") appState.orders = await apiFetch(API_ENDPOINTS.orders);
       if (tabId === "inventory") {
         [appState.inventory, appState.inventoryLedger] = await Promise.all([
@@ -1180,9 +1193,10 @@
       if (tabId === "customers") appState.customers = await apiFetch(API_ENDPOINTS.customers);
       if (tabId === "promotions") appState.promotions = await apiFetch(API_ENDPOINTS.promotions);
       if (tabId === "reports") {
-        [appState.reports, appState.topProducts, appState.stockReport, appState.reconciliation, appState.cashSession] = await Promise.all([
+        [appState.reports, appState.topProducts, appState.salesByStaff, appState.stockReport, appState.reconciliation, appState.cashSession] = await Promise.all([
           apiFetch(API_ENDPOINTS.reports),
           apiFetch(`${API_ENDPOINTS.topProducts}?period=${REPORT_STATE.period}`),
+          apiFetch(`${API_ENDPOINTS.salesByStaff}?period=${REPORT_STATE.period}`),
           apiFetch(API_ENDPOINTS.stockReport),
           apiFetch(API_ENDPOINTS.reconciliation),
           apiFetch(API_ENDPOINTS.cashSession)
@@ -1362,9 +1376,10 @@
         POS_STATE.customer.name = "";
         POS_STATE.customer.place = "";
         POS_STATE.customer.existing = false;
-        showToast("New customer — enter name and place");
+        showToast("No existing customer found for this mobile number");
       }
       POS_STATE.customer.searched = true;
+      POS_STATE.customer.lookupPhone = phone;
       posRerender();
     } catch (_) {
       showToast("Customer search failed");
@@ -1379,8 +1394,13 @@
     const custName = (POS_STATE.customer.name || "").trim();
     const custPhone = (POS_STATE.customer.phone || "").trim();
     const custPlace = (POS_STATE.customer.place || "").trim();
-    if (!custName || !custPhone) {
-      showToast("Customer name and mobile number are required");
+    const isNewCustomer = POS_STATE.customer.mode === "new";
+    if (!isNewCustomer && !POS_STATE.customer.existing) {
+      showToast("Select New Customer or enter a registered mobile number");
+      return;
+    }
+    if (!custPhone || !custName || (isNewCustomer && !custPlace)) {
+      showToast(isNewCustomer ? "Mobile number, name, and place are required" : "Existing customer details are required");
       return;
     }
     if (!/^\d{10}$/.test(custPhone.replace(/\D/g, "").slice(-10))) {
@@ -1466,7 +1486,7 @@
       appState.loaded.orders = false;
       appState.loaded.customers = false;
       POS_STATE.cart = [];
-      POS_STATE.customer = { name: "", phone: "", place: "", existing: false, searched: false };
+      POS_STATE.customer = { mode: "new", name: "", phone: "", place: "", existing: false, searched: false, lookupPhone: "" };
       POS_STATE.paymentMode = "cash";
       POS_STATE.markPaid = true;
       await loadPosCatalog();
@@ -2028,11 +2048,19 @@
     setActive("reports");
   }
 
+  function setDashboardPeriod(period) {
+    DASHBOARD_STATE.period = ["today", "week", "month", "90days"].includes(period) ? period : "today";
+    appState.loaded.dashboard = false;
+    setActive("dashboard");
+  }
+
   function exportBusinessReport() {
     const top = (appState.topProducts && appState.topProducts.items) || [];
+    const staff = (appState.salesByStaff && appState.salesByStaff.items) || [];
     const stock = (appState.stockReport && appState.stockReport.items) || [];
     const soldSkus = new Set((appState.topProducts && appState.topProducts.sold_skus) || []);
     const rows = [["Report", "SKU", "Item", "Quantity", "MRP", "Sale Price", "Cost Price", "Value", "Units Sold", "Revenue"]];
+    staff.forEach((item) => rows.push(["Sales by person", "", item.name, "", "", "", "", "", item.orders, item.sales]));
     top.forEach((item) => rows.push(["Top selling", item.sku, item.name, "", "", "", "", "", item.units_sold, item.revenue]));
     stock.forEach((item) => rows.push([soldSkus.has(item.sku) ? "Stock list" : "Dead stock", item.sku, item.name, item.quantity, item.mrp, item.selling_price, item.cost_price, item.inventory_value, "", ""]));
     const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -2048,6 +2076,7 @@
     { id: "pos", label: "New Sale", short: "Sale" },
     { id: "orders", label: "Sales & Orders", short: "Orders" },
     { id: "inventory", label: "Stock Catalog", short: "Stock" },
+    { id: "rate-calculator", label: "Rate Calculator", short: "Rates" },
     { id: "expenses", label: "Expenses", short: "Costs" },
     { id: "store", label: "Online Store", short: "Store" },
     { id: "customers", label: "Customer Book", short: "People" },
@@ -2062,6 +2091,7 @@
     pos: ["POS", "Counter-optimized checkout with hold, park, and split payments"],
     orders: ["Orders", "Unified in-store and online order lifecycle"],
     inventory: ["Stock Catalog", "Product pricing, cost, on-hand stock, and replenishment"],
+    "rate-calculator": ["Rate Calculator", "Build a selling price from product and operating costs"],
     expenses: ["Expenses", "Shop, operating, and miscellaneous costs"],
     store: ["Online Store", "Customer-facing storefront connected to live stock"],
     customers: ["Customers", "Segments, RFM context, and customer timeline"],
@@ -2102,8 +2132,11 @@
       ];
       return `
         <div class="section" style="display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:6px;">
-          <span class="muted" style="font-size:12px;">Today's performance</span>
+          <span class="muted" style="font-size:12px;">${dashboardData.period_label || "Today"} performance</span>
           <span class="muted" style="font-size:12px;">${new Date().toLocaleDateString()}</span>
+        </div>
+        <div class="section" style="display:flex; gap:6px; flex-wrap:wrap;">
+          ${[["today", "Today"], ["week", "This Week"], ["month", "This Month"], ["90days", "90 Days"]].map(([value, label]) => `<button class="btn ${DASHBOARD_STATE.period === value ? "primary" : ""}" type="button" data-action="dashboard-period" data-period="${value}">${label}</button>`).join("")}
         </div>
         <div class="section grid kpi-grid">
           ${cards.map(([label, value, sub]) => `<article class="card reveal"><div class="kpi-label">${label}</div><div class="kpi-value mono">${value}</div><div class="kpi-trend">${sub}</div></article>`).join("")}
@@ -2123,7 +2156,11 @@
 
           <article class="card reveal">
             <h3 class="panel-title">Alert Lane</h3>
-            ${alerts.length ? alerts.map((message) => `<div class="alert-row"><span>${message}</span><span class="chip warn">Reorder</span></div>`).join("") : `<div class="muted">No active alerts.</div>`}
+            ${alerts.length ? alerts.map((alert) => {
+              const item = typeof alert === "string" ? { message: alert, action: "Review stock", tab: "inventory", level: "warning" } : alert;
+              const tone = item.level === "danger" ? "danger" : item.level === "info" ? "good" : "warn";
+              return `<div class="alert-row"><span>${item.message}</span><button class="chip ${tone}" type="button" data-tab="${item.tab || "dashboard"}">${item.action || "Review"}</button></div>`;
+            }).join("") : `<div class="muted">No active alerts.</div>`}
           </article>
         </div>
       `;
@@ -2133,25 +2170,31 @@
       const t = posTotals();
       const cust = POS_STATE.customer;
       const mode = POS_STATE.paymentMode;
-      const statusMsg = cust.searched
-        ? (cust.existing
-            ? `<span class="chip good">Existing customer</span>`
-            : `<span class="chip warn">New customer — enter details</span>`)
-        : `<span class="muted" style="font-size:12px;">Enter mobile and press Search</span>`;
+      const isNewCustomer = cust.mode !== "existing";
+      const statusMsg = isNewCustomer
+        ? `<span class="chip">New customer details required</span>`
+        : cust.searched
+          ? (cust.existing ? `<span class="chip good">Customer found</span>` : `<span class="chip danger">No customer found</span>`)
+          : `<span class="muted" style="font-size:12px;">Enter 10 digits to search</span>`;
       const catalogOptions = (POS_STATE.catalog || [])
         .map((p) => `<option value="${p.sku}">${p.name} — ${money(p.price || 0)}</option>`)
         .join("");
       return `
         <div class="section card reveal">
           <h3 class="panel-title">Customer <span style="color:#dc2626;">*</span></h3>
+          <fieldset style="border:0; padding:0; margin:0 0 10px; display:flex; gap:16px; flex-wrap:wrap;">
+            <legend class="sr-only">Customer type</legend>
+            <label style="display:flex; align-items:center; gap:7px; font-size:13px; font-weight:600;"><input type="radio" name="pos-customer-mode" value="new" ${isNewCustomer ? "checked" : ""} /> New customer</label>
+            <label style="display:flex; align-items:center; gap:7px; font-size:13px; font-weight:600;"><input type="radio" name="pos-customer-mode" value="existing" ${!isNewCustomer ? "checked" : ""} /> Existing customer</label>
+          </fieldset>
           <div class="grid four-col" style="align-items:end;">
             <label class="field" style="grid-column: span 2;"><span aria-hidden="true">Mobile Number *</span><input id="pos-cust-phone" type="tel" inputmode="numeric" required placeholder="10-digit mobile" value="${cust.phone}" /></label>
-            <button class="btn" type="button" data-action="pos-cust-search">Search</button>
+            ${isNewCustomer ? "" : `<button class="btn compact" type="button" data-action="pos-cust-search">Search</button>`}
             <div>${statusMsg}</div>
           </div>
           <div class="grid four-col" style="margin-top:10px;">
-            <label class="field" style="grid-column: span 2;"><span aria-hidden="true">Customer Name *</span><input id="pos-cust-name" type="text" required placeholder="Name" value="${cust.name}" /></label>
-            <label class="field" style="grid-column: span 2;"><span aria-hidden="true">Place</span><input id="pos-cust-place" type="text" placeholder="City / locality" value="${cust.place}" /></label>
+            <label class="field" style="grid-column: span 2;"><span aria-hidden="true">Customer Name *</span><input id="pos-cust-name" type="text" required placeholder="Name" value="${cust.name}" ${!isNewCustomer ? "readonly" : ""} /></label>
+            <label class="field" style="grid-column: span 2;"><span aria-hidden="true">Place *</span><input id="pos-cust-place" type="text" required placeholder="City / locality" value="${cust.place}" ${!isNewCustomer ? "readonly" : ""} /></label>
           </div>
         </div>
 
@@ -2290,6 +2333,30 @@
               </tbody>
             </table>
           </div>
+        </div>
+      `;
+    },
+
+    "rate-calculator"() {
+      return `
+        <div class="section grid two-col">
+          <article class="card reveal">
+            <h3 class="panel-title">Selling Price Calculator</h3>
+            <div class="grid two-col">
+              <label class="field"><span>Cost price (₹)</span><input id="rate-cost-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" /></label>
+              <label class="field"><span>Operational cost (₹)</span><input id="rate-operational-cost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" /></label>
+              <label class="field"><span>Miscellaneous cost (₹)</span><input id="rate-misc-cost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" /></label>
+              <label class="field"><span>Markup on total cost (%)</span><input id="rate-markup-percent" type="number" min="0" step="0.01" inputmode="decimal" placeholder="e.g. 50" /></label>
+            </div>
+          </article>
+          <article class="card reveal" aria-live="polite">
+            <h3 class="panel-title">Recommended Selling Price</h3>
+            <div class="kpi-value mono" id="rate-selling-price">₹0</div>
+            <div style="display:grid; gap:8px; margin-top:14px;">
+              <div class="alert-row"><span>Total cost</span><strong class="mono" id="rate-total-cost">₹0</strong></div>
+              <div class="alert-row"><span>Markup amount</span><strong class="mono" id="rate-markup-amount">₹0</strong></div>
+            </div>
+          </article>
         </div>
       `;
     },
@@ -2440,6 +2507,7 @@
     reports() {
       const rec = appState.reconciliation || { rows: [] };
       const top = appState.topProducts || { items: [] };
+      const staff = appState.salesByStaff || { items: [] };
       const tax = appState.reports || {};
       const cash = appState.cashSession && appState.cashSession.session;
       const stock = appState.stockReport || { items: [], total_value: 0 };
@@ -2502,6 +2570,10 @@
         </div>
 
         <div class="section grid two-col">
+          <article class="card reveal">
+            <h3 class="panel-title">Sales by Person</h3>
+            <div class="table-wrap"><table><thead><tr><th>Staff member</th><th>Paid orders</th><th>Sales</th></tr></thead><tbody>${(staff.items || []).map((item) => `<tr><td>${item.name}</td><td class="mono">${item.orders}</td><td class="mono">${money(item.sales)}</td></tr>`).join("") || `<tr><td colspan="3">No paid sales for this period.</td></tr>`}</tbody></table></div>
+          </article>
           <article class="card reveal">
           <h3 class="panel-title">Top Selling Items</h3>
           <div class="table-wrap">
@@ -2735,6 +2807,22 @@
         });
       }
     }
+
+    if (tabId === "rate-calculator") {
+      document.querySelectorAll("#rate-cost-price, #rate-operational-cost, #rate-misc-cost, #rate-markup-percent").forEach((input) => {
+        input.addEventListener("input", updateRateCalculator);
+      });
+    }
+  }
+
+  function updateRateCalculator() {
+    const value = (id) => Math.max(0, Number(document.getElementById(id)?.value) || 0);
+    const totalCost = value("rate-cost-price") + value("rate-operational-cost") + value("rate-misc-cost");
+    const markup = totalCost * value("rate-markup-percent") / 100;
+    const sellingPrice = totalCost + markup;
+    document.getElementById("rate-total-cost").textContent = money(totalCost);
+    document.getElementById("rate-markup-amount").textContent = money(markup);
+    document.getElementById("rate-selling-price").textContent = money(sellingPrice);
   }
 
   document.addEventListener("click", (event) => {
@@ -2830,6 +2918,10 @@
         setReportPeriod(actionBtn.dataset.period);
         return;
       }
+      if (action === "dashboard-period") {
+        setDashboardPeriod(actionBtn.dataset.period);
+        return;
+      }
       if (action === "export-business-report") {
         exportBusinessReport();
         return;
@@ -2912,6 +3004,11 @@
     } else if (event.target.id === "pos-cust-phone") {
       POS_STATE.customer.phone = event.target.value;
       POS_STATE.customer.searched = false;
+      POS_STATE.customer.existing = false;
+      const digits = event.target.value.replace(/\D/g, "").slice(-10);
+      if (POS_STATE.customer.mode === "existing" && digits.length === 10 && POS_STATE.customer.lookupPhone !== event.target.value) {
+        posCustomerSearch();
+      }
     } else if (event.target.id === "pos-cust-place") {
       POS_STATE.customer.place = event.target.value;
     }
@@ -2926,6 +3023,17 @@
       });
     } else if (event.target.id === "pos-mark-paid-check") {
       POS_STATE.markPaid = event.target.checked;
+    } else if (event.target.name === "pos-customer-mode") {
+      const isNewCustomer = event.target.value === "new";
+      POS_STATE.customer.mode = isNewCustomer ? "new" : "existing";
+      POS_STATE.customer.searched = false;
+      POS_STATE.customer.existing = false;
+      POS_STATE.customer.lookupPhone = "";
+      if (isNewCustomer) {
+        POS_STATE.customer.name = "";
+        POS_STATE.customer.place = "";
+      }
+      posRerender();
     }
   });
 

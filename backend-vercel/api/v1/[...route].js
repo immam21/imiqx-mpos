@@ -452,13 +452,23 @@ module.exports = async function handler(req, res) {
 
     // ------------------------- Dashboard -------------------------
     if (pathname === "/v1/reports/dashboard" && req.method === "GET") {
+      const url = new URL(req.url, "http://localhost");
+      const period = url.searchParams.get("period") || "today";
       const todayStart = startOfTodayIso();
       const weekStart = startOfDaysAgoIso(6);
       const monthStart = startOfMonthIso();
-      const [monthOrders, balances, currentMonthExpenses, priceRows] = await Promise.all([
+      const periodStart = period === "week"
+        ? weekStart
+        : period === "month"
+          ? monthStart
+          : period === "90days"
+            ? startOfDaysAgoIso(89)
+            : todayStart;
+      const periodLabel = period === "week" ? "This Week" : period === "month" ? "This Month" : period === "90days" ? "Last 90 Days" : "Today";
+      const [periodOrders, balances, periodExpenses, priceRows, openCashSessions, latestSyncRuns] = await Promise.all([
         sbSelect(
           "orders",
-          `select=id,status,subtotal,tax_amount,discount_amount,total_amount,created_at&store_id=eq.${ctx.storeId}&created_at=gte.${encode(monthStart)}`
+          `select=id,status,subtotal,tax_amount,discount_amount,total_amount,created_at&store_id=eq.${ctx.storeId}&created_at=gte.${encode(periodStart)}`
         ),
         sbSelect(
           "inventory_balances",
@@ -466,17 +476,24 @@ module.exports = async function handler(req, res) {
         ),
         sbSelect(
           "expenses",
-          `select=amount&store_id=eq.${ctx.storeId}&expense_date=gte.${encode(monthStart.slice(0, 10))}`
+          `select=amount&store_id=eq.${ctx.storeId}&expense_date=gte.${encode(periodStart.slice(0, 10))}`
         ).catch(() => []),
         sbSelect(
           "product_prices",
           `select=product_id,cost_price,effective_from&store_id=eq.${ctx.storeId}&order=effective_from.desc`
+        ).catch(() => []),
+        sbSelect(
+          "cash_sessions",
+          `select=opened_at&store_id=eq.${ctx.storeId}&status=eq.open&order=opened_at.asc&limit=1`
+        ).catch(() => []),
+        sbSelect(
+          "google_sheets_sync_runs",
+          `select=status,error_message,completed_at&business_id=eq.${ctx.businessId}&order=completed_at.desc&limit=1`
         ).catch(() => [])
       ]);
-      const todayOrders = monthOrders.filter((order) => order.created_at >= todayStart);
-      const paid = todayOrders.filter((o) => o.status === "paid");
-      const returned = todayOrders.filter((o) => o.status === "returned" || o.status === "voided");
-      const unpaid = todayOrders.filter((o) => o.status === "created");
+      const paid = periodOrders.filter((o) => o.status === "paid");
+      const returned = periodOrders.filter((o) => o.status === "returned");
+      const unpaid = periodOrders.filter((o) => o.status === "created");
 
       const totalSales = paid.reduce((a, o) => a + Number(o.total_amount || 0), 0);
       const discounts = paid.reduce((a, o) => a + Number(o.discount_amount || 0), 0);
@@ -509,13 +526,13 @@ module.exports = async function handler(req, res) {
         cogs = lineItems.reduce((a, it) => a + (Number(it.quantity || 0) * (costByProduct[it.product_id] || 0)), 0);
       }
       const grossProfit = itemsRevenue - cogs;
-      const expenses = currentMonthExpenses.reduce((total, expense) => total + Number(expense.amount || 0), 0);
+      const expenses = periodExpenses.reduce((total, expense) => total + Number(expense.amount || 0), 0);
       const netProfit = grossProfit - expenses;
       const profitMargin = netSales > 0 ? Math.round((netProfit / netSales) * 1000) / 10 : 0;
 
       const lowStock = balances.filter((b) => Number(b.qty_on_hand) <= Number(b.reorder_level));
 
-      const weekOrders = monthOrders.filter((order) => order.created_at >= weekStart);
+      const weekOrders = periodOrders.filter((order) => order.created_at >= weekStart);
       const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       const trend = [];
       for (let i = 6; i >= 0; i -= 1) {
@@ -528,9 +545,36 @@ module.exports = async function handler(req, res) {
         trend.push([dayNames[day.getDay()], Math.round(total / 1000)]);
       }
 
-      const alerts = lowStock
-        .slice(0, 5)
-        .map((b) => `Low stock: ${(b.products && b.products.name) || "SKU"} (${b.qty_on_hand} left)`);
+      const alerts = lowStock.slice(0, 3).map((balance) => ({
+        level: "warning",
+        message: `Low stock: ${(balance.products && balance.products.name) || "SKU"} (${balance.qty_on_hand} left)`,
+        action: "Review stock",
+        tab: "inventory"
+      }));
+      if (unpaid.length) {
+        alerts.push({
+          level: "warning",
+          message: `${unpaid.length} unpaid order${unpaid.length === 1 ? "" : "s"} totaling ${outstanding.toFixed(2)}`,
+          action: "Review orders",
+          tab: "orders"
+        });
+      }
+      if (openCashSessions.length) {
+        alerts.push({
+          level: "info",
+          message: `Cash drawer open since ${new Date(openCashSessions[0].opened_at).toLocaleString("en-IN")}`,
+          action: "View cash report",
+          tab: "reports"
+        });
+      }
+      if (latestSyncRuns[0] && latestSyncRuns[0].status === "error") {
+        alerts.push({
+          level: "danger",
+          message: `Google Sheets backup failed: ${latestSyncRuns[0].error_message || "check integration settings"}`,
+          action: "View integration",
+          tab: "integrations"
+        });
+      }
 
       const rangeStarts = {
         today: todayStart,
@@ -540,7 +584,7 @@ module.exports = async function handler(req, res) {
       };
       const rangeSales = {};
       Object.entries(rangeStarts).forEach(([key, start]) => {
-        const paidOrders = monthOrders.filter((order) => order.created_at >= start && order.status === "paid");
+        const paidOrders = periodOrders.filter((order) => order.created_at >= start && order.status === "paid");
         rangeSales[key] = {
           sales: paidOrders.reduce((total, order) => total + Number(order.total_amount || 0), 0),
           orders: paidOrders.length
@@ -548,6 +592,8 @@ module.exports = async function handler(req, res) {
       });
 
       sendJson(res, 200, {
+        period,
+        period_label: periodLabel,
         kpis: {
           total_sales: totalSales,
           net_sales: netSales,
@@ -609,6 +655,26 @@ module.exports = async function handler(req, res) {
       });
       const top = Array.from(bucket.values()).sort((a, b) => b.units_sold - a.units_sold).slice(0, 10);
       sendJson(res, 200, { period, items: top, sold_skus: Array.from(bucket.keys()) });
+      return;
+    }
+
+    if (pathname === "/v1/reports/sales-by-staff" && req.method === "GET") {
+      const url = new URL(req.url, "http://localhost");
+      const period = url.searchParams.get("period") || "month";
+      const days = period === "day" ? 0 : period === "week" ? 6 : 30;
+      const rows = await sbSelect(
+        "orders",
+        `select=sold_by_user_id,sold_by_name,total_amount&store_id=eq.${ctx.storeId}&status=eq.paid&created_at=gte.${encode(startOfDaysAgoIso(days))}`
+      );
+      const staff = new Map();
+      rows.forEach((order) => {
+        const id = order.sold_by_user_id || "unattributed";
+        const current = staff.get(id) || { user_id: order.sold_by_user_id || null, name: order.sold_by_name || "Unattributed", orders: 0, sales: 0 };
+        current.orders += 1;
+        current.sales += Number(order.total_amount || 0);
+        staff.set(id, current);
+      });
+      sendJson(res, 200, { period, items: Array.from(staff.values()).sort((a, b) => b.sales - a.sales) });
       return;
     }
 
