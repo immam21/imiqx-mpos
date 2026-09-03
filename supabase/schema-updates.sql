@@ -12,6 +12,9 @@
 -- the code to use this dedicated column.
 
 alter table customers add column if not exists place text;
+alter table customers add column if not exists full_address text;
+alter table customers add column if not exists city text;
+alter table customers add column if not exists pincode text;
 
 -- Optional: migrate any place values previously stored in segment.
 -- (Safe to skip if you never entered a place before.)
@@ -34,6 +37,18 @@ create table if not exists expenses (
 );
 
 create index if not exists idx_expenses_store_date on expenses (store_id, expense_date desc);
+
+-- Exact transaction timestamps. orders.created_at already records sale time;
+-- expense_at records when the expense occurred, independently of entry time.
+alter table expenses add column if not exists expense_at timestamptz not null default now();
+update expenses set expense_at = created_at where expense_at is null;
+create index if not exists idx_expenses_store_expense_at on expenses (store_id, expense_at desc);
+
+-- Delivery details are stored on the order as a snapshot for online fulfillment.
+alter table orders add column if not exists delivery_address text;
+alter table orders add column if not exists delivery_city text;
+alter table orders add column if not exists delivery_pincode text;
+create index if not exists idx_orders_store_channel_created on orders (store_id, channel, created_at desc);
 
 -- Attribute every sale and expense to the authenticated staff member.
 alter table orders add column if not exists sold_by_user_id uuid references app_users(id) on delete set null;
@@ -72,4 +87,5 @@ create table if not exists google_sheets_sync_runs (
 	error_message text,
 	completed_at timestamptz not null default now()
 );
+alter table google_sheets_sync_runs add column if not exists customer_rows integer not null default 0;
 create index if not exists idx_google_sheets_sync_runs_business_completed on google_sheets_sync_runs (business_id, completed_at desc);

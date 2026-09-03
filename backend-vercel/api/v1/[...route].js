@@ -1,5 +1,6 @@
 const { findUserByEmail, verifyPassword } = require("../../lib/auth-db");
 const { sbSelect, sbInsert, sbUpdate } = require("../../lib/supabase-rest");
+const { runBackup } = require("../cron/backup");
 
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -729,7 +730,7 @@ module.exports = async function handler(req, res) {
     if (pathname === "/v1/expenses" && req.method === "GET") {
       const rows = await sbSelect(
         "expenses",
-        `select=id,expense_date,category,description,amount,payment_mode,recorded_by_name,created_at&store_id=eq.${ctx.storeId}&order=expense_date.desc,created_at.desc&limit=100`
+        `select=id,expense_date,expense_at,category,description,amount,payment_mode,recorded_by_name,created_at&store_id=eq.${ctx.storeId}&order=expense_date.desc,expense_at.desc&limit=100`
       );
       sendJson(res, 200, { items: rows.map((row) => ({ ...row, amount: Number(row.amount || 0) })) });
       return;
@@ -748,6 +749,7 @@ module.exports = async function handler(req, res) {
         business_id: ctx.businessId,
         store_id: ctx.storeId,
         expense_date: body.expense_date || nowIso().slice(0, 10),
+        expense_at: body.expense_at || nowIso(),
         category,
         description: String(body.description || "").trim() || null,
         amount,
@@ -856,7 +858,8 @@ module.exports = async function handler(req, res) {
           channel: channelLabel(o.channel),
           customer_name: o.customer_name,
           total_amount: Number(o.total_amount || 0),
-          status: titleCaseStatus(o.status)
+          status: titleCaseStatus(o.status),
+          created_at: o.created_at
         }))
       });
       return;
@@ -1292,7 +1295,7 @@ module.exports = async function handler(req, res) {
         sbSelect("integrations", `select=provider,is_enabled,config&business_id=eq.${ctx.businessId}`),
         sbSelect(
           "google_sheets_sync_runs",
-          `select=status,sales_rows,expense_rows,error_message,completed_at&business_id=eq.${ctx.businessId}&order=completed_at.desc&limit=1`
+          `select=status,sales_rows,expense_rows,customer_rows,error_message,completed_at&business_id=eq.${ctx.businessId}&order=completed_at.desc&limit=1`
         ).catch(() => [])
       ]);
       const whatsapp = rows.find((r) => r.provider === "whatsapp");
@@ -1308,13 +1311,24 @@ module.exports = async function handler(req, res) {
         sheet_sync_status: lastSync ? lastSync.status : "not_run",
         sheet_sync_detail: lastSync
           ? (lastSync.status === "success"
-            ? `${lastSync.sales_rows || 0} sales, ${lastSync.expense_rows || 0} expenses backed up`
+            ? `${lastSync.sales_rows || 0} sales, ${lastSync.expense_rows || 0} expenses, ${lastSync.customer_rows || 0} customers backed up`
             : (lastSync.error_message || "Backup failed"))
           : "No backup run recorded yet",
         webhook_retries: null,
         idempotency_conflicts: null,
         failed_signatures: null
       });
+      return;
+    }
+
+    if (pathname === "/v1/integrations/google-sheets-sync" && req.method === "POST") {
+      const actor = await resolveActor(req);
+      if (!actor) {
+        sendJson(res, 401, { error: "authentication_required" });
+        return;
+      }
+      const result = await runBackup();
+      sendJson(res, 200, result);
       return;
     }
 
@@ -1421,19 +1435,109 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    // ------------------------- Online orders -------------------------
+    if (pathname === "/v1/online-orders" && req.method === "GET") {
+      const rows = await sbSelect(
+        "orders",
+        `select=order_no,customer_name,delivery_city,delivery_pincode,total_amount,status,created_at&business_id=eq.${ctx.businessId}&channel=eq.online&order=created_at.desc&limit=100`
+      );
+      sendJson(res, 200, {
+        items: rows.map((order) => ({
+          ...order,
+          total_amount: Number(order.total_amount || 0),
+          status: titleCaseStatus(order.status)
+        }))
+      });
+      return;
+    }
+
+    if (pathname === "/v1/online-orders/detail" && req.method === "GET") {
+      const url = new URL(req.url, "http://localhost");
+      const orderNo = (url.searchParams.get("order_no") || "").trim();
+      if (!orderNo) {
+        sendJson(res, 400, { error: "order_no required" });
+        return;
+      }
+      const order = (await sbSelect(
+        "orders",
+        `select=id,customer_id,order_no,customer_name,status,total_amount,created_at,delivery_address,delivery_city,delivery_pincode&business_id=eq.${ctx.businessId}&channel=eq.online&order_no=eq.${encode(orderNo)}&limit=1`
+      ))[0];
+      if (!order) {
+        sendJson(res, 404, { error: "online_order_not_found" });
+        return;
+      }
+      const [items, payments, customer] = await Promise.all([
+        sbSelect("order_items", `select=sku,name,quantity,unit_price,line_total&order_id=eq.${order.id}`),
+        sbSelect("order_payments", `select=mode,amount&order_id=eq.${order.id}`).catch(() => []),
+        order.customer_id ? sbSelect("customers", `select=phone&id=eq.${order.customer_id}&limit=1`).then((rows) => rows[0] || null) : Promise.resolve(null)
+      ]);
+      sendJson(res, 200, {
+        ...order,
+        total_amount: Number(order.total_amount || 0),
+        status: titleCaseStatus(order.status),
+        customer_phone: customer ? customer.phone || "" : "",
+        items: items.map((item) => ({ ...item, quantity: Number(item.quantity || 0), unit_price: Number(item.unit_price || 0), line_total: Number(item.line_total || 0) })),
+        payments: payments.map((payment) => ({ ...payment, amount: Number(payment.amount || 0) }))
+      });
+      return;
+    }
+
+    if (pathname === "/v1/online-orders/update" && req.method === "POST") {
+      const body = await parseBody(req);
+      const orderNo = String(body.order_no || "").trim();
+      if (!orderNo) {
+        sendJson(res, 400, { error: "order_no required" });
+        return;
+      }
+      const order = (await sbSelect(
+        "orders",
+        `select=id,total_amount,status&business_id=eq.${ctx.businessId}&channel=eq.online&order_no=eq.${encode(orderNo)}&limit=1`
+      ))[0];
+      if (!order) {
+        sendJson(res, 404, { error: "online_order_not_found" });
+        return;
+      }
+      const requestedStatus = String(body.status || order.status).toLowerCase();
+      const validStatuses = ["created", "paid", "packed", "shipped", "delivered", "returned"];
+      if (!validStatuses.includes(requestedStatus)) {
+        sendJson(res, 400, { error: "invalid_status" });
+        return;
+      }
+      const updated = await sbUpdate("orders", `id=eq.${order.id}`, {
+        customer_name: String(body.customer_name || "").trim() || undefined,
+        delivery_address: String(body.delivery_address || "").trim() || null,
+        delivery_city: String(body.delivery_city || "").trim() || null,
+        delivery_pincode: String(body.delivery_pincode || "").trim() || null,
+        status: requestedStatus
+      });
+      if (requestedStatus === "paid" && order.status !== "paid") {
+        await sbInsert("order_payments", [{
+          business_id: ctx.businessId,
+          order_id: order.id,
+          mode: String(body.payment_mode || "online").trim(),
+          amount: Number(order.total_amount || 0)
+        }]);
+      }
+      sendJson(res, 200, { item: { ...updated[0], status: titleCaseStatus(updated[0].status) } });
+      return;
+    }
+
     // ------------------------- POS sale -------------------------
     if (pathname === "/v1/pos/sales" && req.method === "POST") {
       const body = await parseBody(req);
       const actor = await resolveActor(req);
       const channel = body.channel === "online" ? "online" : "in_store";
       const totals = body.totals || {};
-      const orderNo = `SALE-${Date.now()}`;
+      const orderNo = `${channel === "online" ? "ONLINE" : "SALE"}-${Date.now()}`;
 
       // Resolve or create the customer from phone/name when provided.
       let customerId = null;
       const custName = (body.customer && body.customer.name) || "Walk-in";
       const custPhone = body.customer && body.customer.phone ? String(body.customer.phone).trim() : "";
       const custPlace = body.customer && body.customer.place ? String(body.customer.place).trim() : "";
+      const custAddress = body.customer && body.customer.address ? String(body.customer.address).trim() : "";
+      const custCity = body.customer && body.customer.city ? String(body.customer.city).trim() : "";
+      const custPincode = body.customer && body.customer.pincode ? String(body.customer.pincode).trim() : "";
       const markPaid = body.status !== "created";
       if (custPhone) {
         const existing = await sbSelect(
@@ -1442,7 +1546,13 @@ module.exports = async function handler(req, res) {
         ).catch(() => []);
         if (existing.length) {
           customerId = existing[0].id;
-          await sbUpdate("customers", `id=eq.${existing[0].id}`, { name: custName, segment: custPlace }).catch(() => {});
+          await sbUpdate("customers", `id=eq.${existing[0].id}`, {
+            name: custName,
+            segment: custPlace,
+            full_address: custAddress || null,
+            city: custCity || null,
+            pincode: custPincode || null
+          }).catch(() => {});
         } else {
           const created = await sbInsert("customers", [
             {
@@ -1451,6 +1561,9 @@ module.exports = async function handler(req, res) {
               name: custName,
               phone: custPhone,
               segment: custPlace,
+              full_address: custAddress || null,
+              city: custCity || null,
+              pincode: custPincode || null,
               is_active: true
             }
           ]).catch(() => []);
@@ -1466,6 +1579,9 @@ module.exports = async function handler(req, res) {
           channel,
           customer_id: customerId,
           customer_name: custName,
+          delivery_address: custAddress || null,
+          delivery_city: custCity || null,
+          delivery_pincode: custPincode || null,
           status: markPaid ? "paid" : "created",
           subtotal: Number(totals.subtotal || 0),
           tax_amount: Number(totals.tax_amount || 0),

@@ -888,6 +888,10 @@
   <div class="modal-card stock-modal-card" id="stock-modal-content"></div>
 </div>
 
+<div id="online-order-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="online-order-modal-title">
+  <div class="modal-card stock-modal-card" id="online-order-modal-content"></div>
+</div>
+
 <div id="scanner-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="scanner-title">
   <div class="modal-card">
     <h2 id="scanner-title" class="modal-title">Scan Barcode</h2>
@@ -972,6 +976,7 @@
     expenses: "/v1/expenses",
     cashSession: "/v1/cash-session",
     integrations: "/v1/integrations/status",
+    googleSheetsSync: "/v1/integrations/google-sheets-sync",
     whatsappEvents: "/v1/integrations/whatsapp/events",
     whatsappReceipt: "/v1/integrations/whatsapp/send-receipt",
     settings: "/v1/business/setup",
@@ -999,6 +1004,12 @@
     markPaid: true,
     catalog: [],
     lastSale: null
+  };
+  const ONLINE_ORDER_STATE = {
+    customer: { name: "", phone: "", address: "", city: "", pincode: "" },
+    cart: [],
+    markPaid: false,
+    paymentMode: "online"
   };
 
   const CUST_STATE = { filter: "", detail: null };
@@ -1037,6 +1048,7 @@
     whatsappEvents: null,
     settings: null,
     storefront: null,
+    onlineOrders: null,
     expenses: null,
     cashSession: null
   };
@@ -1397,7 +1409,10 @@
         ]);
       }
       if (tabId === "settings") appState.settings = await apiFetch(API_ENDPOINTS.settings);
-      if (tabId === "store") appState.storefront = await apiFetch(API_ENDPOINTS.onlineStore);
+      if (tabId === "store") [appState.storefront, appState.onlineOrders] = await Promise.all([
+        apiFetch(API_ENDPOINTS.onlineStore),
+        apiFetch("/v1/online-orders")
+      ]);
       appState.loaded[tabId] = true;
     } catch (_) {
       appState.loaded[tabId] = false;
@@ -1417,12 +1432,223 @@
     return { subtotal, tax, total: Math.round((subtotal + tax) * 100) / 100 };
   }
 
+  function formatDateTime(value) {
+    return value ? new Date(value).toLocaleString("en-IN") : "-";
+  }
+
+  function formatOrderStatus(value) {
+    const status = String(value || "");
+    return status ? status.charAt(0).toUpperCase() + status.slice(1) : "-";
+  }
+
+  function onlineOrderTotals() {
+    let subtotal = 0;
+    let tax = 0;
+    ONLINE_ORDER_STATE.cart.forEach((line) => {
+      const lineSubtotal = line.qty * line.unit_price;
+      subtotal += lineSubtotal;
+      tax += lineSubtotal * (Number(line.tax_percent) || 0) / 100;
+    });
+    return {
+      subtotal: Math.round(subtotal * 100) / 100,
+      tax: Math.round(tax * 100) / 100,
+      total: Math.round((subtotal + tax) * 100) / 100
+    };
+  }
+
   function posRerender() {
     if (appState.activeTab !== "pos") {
       return;
     }
     document.getElementById("view-root").innerHTML = page.pos();
     wireView("pos");
+  }
+
+  function onlineOrderRerender() {
+    if (appState.activeTab !== "store") return;
+    document.getElementById("view-root").innerHTML = page.store();
+    wireView("store");
+  }
+
+  function captureOnlineCustomer() {
+    ["name", "phone", "address", "city", "pincode"].forEach((field) => {
+      const input = document.getElementById(`online-customer-${field}`);
+      if (input) ONLINE_ORDER_STATE.customer[field] = input.value;
+    });
+  }
+
+  async function onlineAddItem() {
+    captureOnlineCustomer();
+    const input = document.getElementById("online-scan");
+    const code = input ? input.value.trim() : "";
+    if (!code) {
+      showToast("Enter a barcode or SKU");
+      return;
+    }
+    try {
+      const product = await apiFetch(`${API_ENDPOINTS.productLookup}?code=${encodeURIComponent(code)}`);
+      const existing = ONLINE_ORDER_STATE.cart.find((line) => line.sku === product.sku);
+      const inCart = existing ? existing.qty : 0;
+      if (Number(product.available_qty) <= inCart) {
+        showToast(`Only ${product.available_qty} in stock for ${product.name}`);
+        return;
+      }
+      if (existing) existing.qty += 1;
+      else ONLINE_ORDER_STATE.cart.push({
+        sku: product.sku,
+        name: product.name,
+        qty: 1,
+        unit_price: Number(product.unit_price),
+        tax_percent: Number(product.tax_percent),
+        available: Number(product.available_qty)
+      });
+      onlineOrderRerender();
+    } catch (_) {
+      showToast("Item not found in inventory");
+    }
+  }
+
+  function onlineChangeQty(sku, delta) {
+    captureOnlineCustomer();
+    const line = ONLINE_ORDER_STATE.cart.find((item) => item.sku === sku);
+    if (!line) return;
+    const next = line.qty + delta;
+    if (next <= 0) ONLINE_ORDER_STATE.cart = ONLINE_ORDER_STATE.cart.filter((item) => item.sku !== sku);
+    else if (next > line.available) {
+      showToast(`Only ${line.available} in stock`);
+      return;
+    } else line.qty = next;
+    onlineOrderRerender();
+  }
+
+  async function submitOnlineOrder() {
+    captureOnlineCustomer();
+    const customer = {
+      ...ONLINE_ORDER_STATE.customer
+    };
+    if (!customer.name || !customer.phone || !customer.address || !customer.city || !customer.pincode) {
+      showToast("Name, phone, full address, city, and pincode are required");
+      return;
+    }
+    if (!/^\d{10}$/.test(customer.phone.replace(/\D/g, "").slice(-10))) {
+      showToast("Enter a valid 10-digit mobile number");
+      return;
+    }
+    if (!/^\d{6}$/.test(customer.pincode)) {
+      showToast("Enter a valid 6-digit pincode");
+      return;
+    }
+    if (!ONLINE_ORDER_STATE.cart.length) {
+      showToast("Add at least one item");
+      return;
+    }
+    const totals = onlineOrderTotals();
+    try {
+      const data = await apiFetch(API_ENDPOINTS.posSales, {
+        method: "POST",
+        body: JSON.stringify({
+          store_id: appState.currentStoreId,
+          business_id: APP_CONFIG.businessId,
+          channel: "online",
+          customer: { ...customer, place: customer.city },
+          status: ONLINE_ORDER_STATE.markPaid ? "paid" : "created",
+          items: ONLINE_ORDER_STATE.cart.map((line) => ({
+            sku: line.sku,
+            name: line.name,
+            quantity: line.qty,
+            unit_price: line.unit_price,
+            line_total: Math.round(line.qty * line.unit_price * 100) / 100
+          })),
+          totals: { subtotal: totals.subtotal, tax_amount: totals.tax, discount_amount: 0, total_amount: totals.total },
+          payments: ONLINE_ORDER_STATE.markPaid ? [{ mode: ONLINE_ORDER_STATE.paymentMode, amount: totals.total }] : []
+        })
+      });
+      ONLINE_ORDER_STATE.customer = { name: "", phone: "", address: "", city: "", pincode: "" };
+      ONLINE_ORDER_STATE.cart = [];
+      ONLINE_ORDER_STATE.markPaid = false;
+      ONLINE_ORDER_STATE.paymentMode = "online";
+      appState.loaded.orders = false;
+      appState.loaded.dashboard = false;
+      appState.onlineOrders = await apiFetch("/v1/online-orders");
+      showToast(`Online order created: ${data.sale_id}`);
+      onlineOrderRerender();
+    } catch (err) {
+      showToast("Online order failed: " + (err.message || "error"));
+    }
+  }
+
+  async function openOnlineOrderModal(orderNo, edit = false) {
+    if (!orderNo) return;
+    try {
+      const order = await apiFetch(`/v1/online-orders/detail?order_no=${encodeURIComponent(orderNo)}`);
+      const content = document.getElementById("online-order-modal-content");
+      const statuses = ["created", "paid", "packed", "shipped", "delivered", "returned"];
+      content.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+          <h2 id="online-order-modal-title" class="modal-title">${edit ? "Edit" : "View"} ${escapeAttr(order.order_no)}</h2>
+          <button class="btn" type="button" data-action="close-online-order-modal">Close</button>
+        </div>
+        <div class="auth-form" style="grid-template-columns:repeat(2,minmax(0,1fr));">
+          <label>Customer name<input id="online-edit-name" type="text" value="${escapeAttr(order.customer_name)}" ${edit ? "" : "readonly"} /></label>
+          <label>Phone<input type="tel" value="${escapeAttr(order.customer_phone)}" readonly /></label>
+          <label style="grid-column:1 / -1;">Full address<input id="online-edit-address" type="text" value="${escapeAttr(order.delivery_address)}" ${edit ? "" : "readonly"} /></label>
+          <label>City<input id="online-edit-city" type="text" value="${escapeAttr(order.delivery_city)}" ${edit ? "" : "readonly"} /></label>
+          <label>Pincode<input id="online-edit-pincode" type="text" value="${escapeAttr(order.delivery_pincode)}" ${edit ? "" : "readonly"} /></label>
+          <label>Status<select id="online-edit-status" ${edit ? "" : "disabled"}>${statuses.map((status) => `<option value="${status}" ${status === String(order.status).toLowerCase() ? "selected" : ""}>${formatOrderStatus(status)}</option>`).join("")}</select></label>
+          <label>Payment mode<select id="online-edit-payment" ${edit ? "" : "disabled"}><option value="online">Online</option><option value="upi">UPI</option><option value="card">Card</option><option value="bank">Bank transfer</option></select></label>
+        </div>
+        <div class="table-wrap" style="margin-top:14px;"><table><thead><tr><th>Item</th><th>Qty</th><th>Amount</th></tr></thead><tbody>${order.items.map((item) => `<tr><td>${escapeAttr(item.name)}</td><td class="mono">${item.quantity}</td><td class="mono">${money(item.line_total)}</td></tr>`).join("")}</tbody></table></div>
+        <div class="alert-row" style="margin-top:12px;"><span>Order total</span><strong class="mono">${money(order.total_amount)}</strong></div>
+        <div class="modal-actions">
+          <button class="btn" type="button" data-action="print-shipping-label" data-order="${escapeAttr(order.order_no)}">Print Shipping Label</button>
+          ${edit ? `<button class="btn primary" type="button" data-action="save-online-order" data-order="${escapeAttr(order.order_no)}">Save Changes</button>` : `<button class="btn primary" type="button" data-action="edit-online-order" data-order="${escapeAttr(order.order_no)}">Edit Order</button>`}
+        </div>`;
+      document.getElementById("online-order-modal").classList.add("show");
+    } catch (_) {
+      showToast("Unable to load online order");
+    }
+  }
+
+  function closeOnlineOrderModal() {
+    document.getElementById("online-order-modal").classList.remove("show");
+  }
+
+  async function saveOnlineOrder(orderNo) {
+    try {
+      await apiFetch("/v1/online-orders/update", {
+        method: "POST",
+        body: JSON.stringify({
+          order_no: orderNo,
+          customer_name: fieldVal("online-edit-name"),
+          delivery_address: fieldVal("online-edit-address"),
+          delivery_city: fieldVal("online-edit-city"),
+          delivery_pincode: fieldVal("online-edit-pincode"),
+          status: fieldVal("online-edit-status"),
+          payment_mode: fieldVal("online-edit-payment")
+        })
+      });
+      appState.onlineOrders = await apiFetch("/v1/online-orders");
+      closeOnlineOrderModal();
+      onlineOrderRerender();
+      showToast(`Online order updated: ${orderNo}`);
+    } catch (err) {
+      showToast("Online order update failed: " + (err.message || "error"));
+    }
+  }
+
+  async function printShippingLabel(orderNo) {
+    try {
+      const order = await apiFetch(`/v1/online-orders/detail?order_no=${encodeURIComponent(orderNo)}`);
+      const label = window.open("", "_blank");
+      if (!label) {
+        showToast("Allow popups to print the shipping label");
+        return;
+      }
+      label.document.write(`<!doctype html><title>Shipping Label</title><style>body{font:16px sans-serif;padding:24px}.label{border:2px solid #111;padding:24px;max-width:420px}.order{font-family:monospace;font-size:18px;font-weight:bold;margin-bottom:20px}h1{font-size:15px;margin:0 0 8px;color:#555}p{margin:4px 0}</style><main class="label"><h1>SHIP TO</h1><p><strong>${escapeAttr(order.customer_name)}</strong></p><p>${escapeAttr(order.delivery_address)}</p><p>${escapeAttr(order.delivery_city)} ${escapeAttr(order.delivery_pincode)}</p><p>${escapeAttr(order.customer_phone)}</p><div class="order">${escapeAttr(order.order_no)}</div></main><script>print();<\/script>`);
+      label.document.close();
+    } catch (_) {
+      showToast("Unable to print shipping label");
+    }
   }
 
   let scannerInstance = null;
@@ -2240,6 +2466,26 @@
     }
   }
 
+  async function runGoogleSheetsSync() {
+    const button = document.querySelector("[data-action='run-google-sheets-sync']");
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Syncing...";
+    }
+    try {
+      const result = await apiFetch(API_ENDPOINTS.googleSheetsSync, { method: "POST" });
+      appState.loaded.integrations = false;
+      showToast(`Sheets synced: ${result.sales_rows} sales, ${result.expense_rows} expenses, ${result.customer_rows} customers`);
+      await setActive("integrations");
+    } catch (err) {
+      showToast("Sheets sync failed: " + (err.message || "error"));
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Run Sync Now";
+      }
+    }
+  }
+
   function setReportPeriod(period) {
     REPORT_STATE.period = ["day", "week", "month"].includes(period) ? period : "month";
     appState.loaded.reports = false;
@@ -2453,6 +2699,7 @@
         it.channel,
         it.customer_name,
         money(it.total_amount || 0),
+        formatDateTime(it.created_at),
         it.status
       ]);
       const tone = {
@@ -2481,9 +2728,9 @@
           <h3 class="panel-title">Unified Fulfillment Queue</h3>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Order</th><th>Channel</th><th>Customer</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
+              <thead><tr><th>Order</th><th>Channel</th><th>Customer</th><th>Amount</th><th>Date & Time</th><th>Status</th><th>Action</th></tr></thead>
               <tbody>
-                ${rows.map((r) => `<tr><td class="mono">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td class="mono">${r[3]}</td><td><span class="chip ${tone[r[4]] || ""}">${r[4]}</span></td><td style="display:flex; gap:6px;"><button class="btn" type="button" data-action="reprint-order" data-order="${r[0]}">Reprint</button><button class="btn" type="button" data-action="void-order" data-order="${r[0]}">Void</button></td></tr>`).join("") || `<tr><td colspan="6">No orders.</td></tr>`}
+                ${rows.map((r) => `<tr><td class="mono">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td class="mono">${r[3]}</td><td class="mono">${r[4]}</td><td><span class="chip ${tone[r[5]] || ""}">${r[5]}</span></td><td style="display:flex; gap:6px;"><button class="btn" type="button" data-action="reprint-order" data-order="${r[0]}">Reprint</button><button class="btn" type="button" data-action="void-order" data-order="${r[0]}">Void</button></td></tr>`).join("") || `<tr><td colspan="7">No orders.</td></tr>`}
               </tbody>
             </table>
           </div>
@@ -2577,7 +2824,7 @@
         </div>
         <article class="card reveal">
           <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;"><h3 class="panel-title" style="margin:0;">Recent Expenses</h3><span class="chip warn">${money(total)} recorded</span></div>
-          <div class="table-wrap"><table><thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Recorded By</th><th>Payment</th><th>Amount</th></tr></thead><tbody>${expenses.map((item) => `<tr><td>${item.expense_date}</td><td>${item.category}</td><td>${item.description || "-"}</td><td>${item.recorded_by_name || "-"}</td><td>${item.payment_mode || "-"}</td><td class="mono">${money(item.amount)}</td></tr>`).join("") || `<tr><td colspan="6">No expenses recorded.</td></tr>`}</tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>Date & Time</th><th>Category</th><th>Description</th><th>Recorded By</th><th>Payment</th><th>Amount</th></tr></thead><tbody>${expenses.map((item) => `<tr><td class="mono">${formatDateTime(item.expense_at || item.created_at)}</td><td>${item.category}</td><td>${item.description || "-"}</td><td>${item.recorded_by_name || "-"}</td><td>${item.payment_mode || "-"}</td><td class="mono">${money(item.amount)}</td></tr>`).join("") || `<tr><td colspan="6">No expenses recorded.</td></tr>`}</tbody></table></div>
         </article>`;
     },
 
@@ -2815,7 +3062,7 @@
             <div class="alert-row"><span>Last sync</span><span class="mono">${iData.sheet_last_run ? new Date(iData.sheet_last_run).toLocaleString("en-IN") : "Never"}</span></div>
             <div class="alert-row"><span>Status</span><span class="chip ${iData.sheet_sync_status === "success" ? "good" : iData.sheet_sync_status === "error" ? "danger" : "warn"}">${iData.sheet_sync_status === "success" ? "Success" : iData.sheet_sync_status === "error" ? "Error" : "Not run"}</span></div>
             <div class="alert-row"><span>${iData.sheet_sync_status === "error" ? "Last error" : "Last result"}</span><span style="max-width:60%; text-align:right; overflow-wrap:anywhere;">${iData.sheet_sync_detail || "No backup run recorded yet"}</span></div>
-            <button class="btn primary" type="button">Run Sync Now</button>
+            <button class="btn primary" type="button" data-action="run-google-sheets-sync">Run Sync Now</button>
           </article>
           <article class="card reveal">
             <h3 class="panel-title">Webhook Reliability</h3>
@@ -2842,6 +3089,11 @@
 
     store() {
       const sf = appState.storefront || {};
+      const customer = ONLINE_ORDER_STATE.customer;
+      const cart = ONLINE_ORDER_STATE.cart;
+      const totals = onlineOrderTotals();
+      const onlineOrders = (appState.onlineOrders && appState.onlineOrders.items) || [];
+      const catalogOptions = (POS_STATE.catalog || []).map((product) => `<option value="${product.sku}">${product.name} — ${money(product.price || 0)}</option>`).join("");
       return `
         <div class="section card reveal">
           <h3 class="panel-title">Storefront Control Plane</h3>
@@ -2852,6 +3104,39 @@
             <article class="card"><div class="kpi-label">Stock Sync Lag</div><div class="kpi-value mono">${sf.sync_lag_seconds || 0}s</div></article>
           </div>
         </div>
+        <div class="section grid two-col">
+          <article class="card reveal">
+            <h3 class="panel-title">Create Online Order</h3>
+            <div class="grid two-col">
+              <label class="field"><span>Customer name *</span><input id="online-customer-name" type="text" value="${escapeAttr(customer.name)}" /></label>
+              <label class="field"><span>Phone *</span><input id="online-customer-phone" type="tel" inputmode="numeric" value="${escapeAttr(customer.phone)}" /></label>
+              <label class="field" style="grid-column:1 / -1;"><span>Full address *</span><input id="online-customer-address" type="text" value="${escapeAttr(customer.address)}" /></label>
+              <label class="field"><span>City *</span><input id="online-customer-city" type="text" value="${escapeAttr(customer.city)}" /></label>
+              <label class="field"><span>Pincode *</span><input id="online-customer-pincode" type="text" inputmode="numeric" value="${escapeAttr(customer.pincode)}" /></label>
+              <label class="field" style="grid-column:1 / -1;"><span>Scan / SKU</span><input id="online-scan" type="text" list="online-catalog" autocomplete="off" placeholder="Scan barcode or enter SKU" /></label>
+            </div>
+            <datalist id="online-catalog">${catalogOptions}</datalist>
+            <fieldset style="border:0; padding:0; margin:12px 0 0; display:flex; gap:16px; flex-wrap:wrap;">
+              <legend class="sr-only">Online order payment status</legend>
+              <label style="display:flex; align-items:center; gap:7px; font-size:13px; font-weight:600;"><input type="radio" name="online-payment-status" value="unpaid" ${!ONLINE_ORDER_STATE.markPaid ? "checked" : ""} /> Unpaid</label>
+              <label style="display:flex; align-items:center; gap:7px; font-size:13px; font-weight:600;"><input type="radio" name="online-payment-status" value="paid" ${ONLINE_ORDER_STATE.markPaid ? "checked" : ""} /> Mark as paid</label>
+              ${ONLINE_ORDER_STATE.markPaid ? `<label class="field" style="margin:0; min-width:130px;"><select id="online-payment-mode"><option value="online" ${ONLINE_ORDER_STATE.paymentMode === "online" ? "selected" : ""}>Online</option><option value="upi" ${ONLINE_ORDER_STATE.paymentMode === "upi" ? "selected" : ""}>UPI</option><option value="card" ${ONLINE_ORDER_STATE.paymentMode === "card" ? "selected" : ""}>Card</option><option value="bank" ${ONLINE_ORDER_STATE.paymentMode === "bank" ? "selected" : ""}>Bank</option></select></label>` : ""}
+            </fieldset>
+            <div style="margin-top:10px;"><button class="btn primary" type="button" data-action="online-add-item">Add Item</button></div>
+          </article>
+          <article class="card reveal">
+            <h3 class="panel-title">Online Order Cart</h3>
+            <div class="table-wrap"><table><thead><tr><th>Item</th><th>Qty</th><th>Amount</th></tr></thead><tbody>${cart.map((line) => `<tr><td>${line.name}<div class="mono muted">${line.sku}</div></td><td><button class="btn" type="button" data-action="online-qty" data-sku="${line.sku}" data-delta="-1">-</button> ${line.qty} <button class="btn" type="button" data-action="online-qty" data-sku="${line.sku}" data-delta="1">+</button></td><td class="mono">${money(line.qty * line.unit_price)}</td></tr>`).join("") || `<tr><td colspan="3">No items added.</td></tr>`}</tbody></table></div>
+            <div class="alert-row" style="margin-top:10px;"><strong>Total</strong><strong class="mono">${money(totals.total)}</strong></div>
+            <div style="margin-top:10px;"><button class="btn primary" type="button" data-action="submit-online-order">Create Online Order</button></div>
+          </article>
+        </div>
+        <article class="section card reveal">
+          <h3 class="panel-title">Online Orders</h3>
+          <div class="table-wrap"><table><thead><tr><th>Order</th><th>Customer</th><th>Destination</th><th>Amount</th><th>Payment / Status</th><th>Date & Time</th><th>Actions</th></tr></thead><tbody>
+            ${onlineOrders.map((order) => `<tr><td class="mono">${order.order_no}</td><td>${order.customer_name || "-"}</td><td>${[order.delivery_city, order.delivery_pincode].filter(Boolean).join(" ") || "-"}</td><td class="mono">${money(order.total_amount)}</td><td><span class="chip ${String(order.status).toLowerCase() === "paid" ? "good" : "warn"}">${order.status}</span></td><td class="mono">${formatDateTime(order.created_at)}</td><td style="display:flex; gap:6px; flex-wrap:wrap;"><button class="btn" type="button" data-action="view-online-order" data-order="${escapeAttr(order.order_no)}">View</button><button class="btn" type="button" data-action="edit-online-order" data-order="${escapeAttr(order.order_no)}">Edit</button><button class="btn" type="button" data-action="print-shipping-label" data-order="${escapeAttr(order.order_no)}">Shipping Label</button></td></tr>`).join("") || `<tr><td colspan="7">No online orders yet.</td></tr>`}
+          </tbody></table></div>
+        </article>
       `;
     },
 
@@ -3000,6 +3285,44 @@
         scan.focus();
       }
 
+      if (tabId === "store") {
+        if (!POS_STATE.catalog.length) {
+          loadPosCatalog().then(() => {
+            if (appState.activeTab === "store") onlineOrderRerender();
+          });
+        }
+        const onlineScan = document.getElementById("online-scan");
+        if (onlineScan) {
+          onlineScan.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onlineAddItem();
+            }
+          });
+        }
+        ["name", "phone", "address", "city", "pincode"].forEach((field) => {
+          const input = document.getElementById(`online-customer-${field}`);
+          if (input) {
+            input.addEventListener("input", () => {
+              ONLINE_ORDER_STATE.customer[field] = input.value;
+            });
+          }
+        });
+        document.querySelectorAll("input[name='online-payment-status']").forEach((input) => {
+          input.addEventListener("change", () => {
+            captureOnlineCustomer();
+            ONLINE_ORDER_STATE.markPaid = input.value === "paid";
+            onlineOrderRerender();
+          });
+        });
+        const paymentMode = document.getElementById("online-payment-mode");
+        if (paymentMode) {
+          paymentMode.addEventListener("change", () => {
+            ONLINE_ORDER_STATE.paymentMode = paymentMode.value;
+          });
+        }
+      }
+
       if (POS_STATE.paymentMode === "upi") {
         const el = document.getElementById("upi-qr");
         if (el && window.QRCode) {
@@ -3134,6 +3457,43 @@
       }
       if (action === "save-expense") {
         saveExpense();
+        return;
+      }
+      if (action === "run-google-sheets-sync") {
+        runGoogleSheetsSync();
+        return;
+      }
+      if (action === "online-add-item") {
+        onlineAddItem();
+        return;
+      }
+      if (action === "online-qty") {
+        onlineChangeQty(actionBtn.dataset.sku, Number(actionBtn.dataset.delta));
+        return;
+      }
+      if (action === "submit-online-order") {
+        submitOnlineOrder();
+        return;
+      }
+      if (action === "view-online-order") {
+        openOnlineOrderModal(actionBtn.dataset.order);
+        return;
+      }
+      if (action === "edit-online-order") {
+        closeOnlineOrderModal();
+        openOnlineOrderModal(actionBtn.dataset.order, true);
+        return;
+      }
+      if (action === "save-online-order") {
+        saveOnlineOrder(actionBtn.dataset.order);
+        return;
+      }
+      if (action === "close-online-order-modal") {
+        closeOnlineOrderModal();
+        return;
+      }
+      if (action === "print-shipping-label") {
+        printShippingLabel(actionBtn.dataset.order);
         return;
       }
       if (action === "open-cash-session") {

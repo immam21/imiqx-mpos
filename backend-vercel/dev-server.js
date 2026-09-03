@@ -36,24 +36,18 @@ function loadEnv(envPath) {
 }
 
 loadEnv(path.join(__dirname, ".env"));
+loadEnv(path.join(__dirname, ".env.local"));
 loadEnv(path.join(__dirname, "..", ".env"));
+loadEnv(path.join(__dirname, "..", ".env.local"));
 
 const handler = require("./api/v1/[...route].js");
+const backupHandler = require("./api/cron/backup.js");
 
 const PORT = Number(process.env.PORT || 8787);
 
 // Adapt a Node req/res pair to the Vercel handler contract (req.query, res.status/json).
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
-
-  if (requestUrl.pathname === "/health") {
-    res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
-    res.end(JSON.stringify({ ok: true, service: "onecounter-backend", db: Boolean(process.env.SUPABASE_URL) }));
-    return;
-  }
-
-  const routePart = requestUrl.pathname.replace(/^\/v1\//, "").replace(/^\//, "");
-  req.query = { route: routePart ? routePart.split("/") : [] };
 
   res.status = (code) => {
     res.statusCode = code;
@@ -64,6 +58,20 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify(data));
     return res;
   };
+
+  if (requestUrl.pathname === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+    res.end(JSON.stringify({ ok: true, service: "onecounter-backend", db: Boolean(process.env.SUPABASE_URL) }));
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/cron/backup") {
+    await backupHandler(req, res);
+    return;
+  }
+
+  const routePart = requestUrl.pathname.replace(/^\/v1\//, "").replace(/^\//, "");
+  req.query = { route: routePart ? routePart.split("/") : [] };
 
   try {
     await handler(req, res);
