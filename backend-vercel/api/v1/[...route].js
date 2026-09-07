@@ -1585,6 +1585,9 @@ module.exports = async function handler(req, res) {
           status: markPaid ? "paid" : "created",
           subtotal: Number(totals.subtotal || 0),
           tax_amount: Number(totals.tax_amount || 0),
+          cgst_amount: Number(totals.cgst_amount || 0),
+          sgst_amount: Number(totals.sgst_amount || 0),
+          prices_include_gst: Boolean(totals.prices_include_gst),
           discount_amount: Number(totals.discount_amount || 0),
           total_amount: Number(totals.total_amount || 0),
           sold_by_user_id: actor ? actor.id : null,
@@ -1609,7 +1612,12 @@ module.exports = async function handler(req, res) {
             name: line.name,
             quantity: Number(line.quantity || 0),
             unit_price: Number(line.unit_price || 0),
-            line_total: Number(line.line_total || 0)
+            line_total: Number(line.line_total || 0),
+            tax_percent: Number(line.tax_percent || 0),
+            taxable_amount: Number(line.taxable_amount || 0),
+            cgst_amount: Number(line.cgst_amount || 0),
+            sgst_amount: Number(line.sgst_amount || 0),
+            price_includes_gst: Boolean(line.price_includes_gst)
           }
         ]);
 

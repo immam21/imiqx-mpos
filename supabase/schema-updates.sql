@@ -89,3 +89,14 @@ create table if not exists google_sheets_sync_runs (
 );
 alter table google_sheets_sync_runs add column if not exists customer_rows integer not null default 0;
 create index if not exists idx_google_sheets_sync_runs_business_completed on google_sheets_sync_runs (business_id, completed_at desc);
+
+-- Store the GST basis and split on every sold item for tax audit and reporting.
+alter table order_items add column if not exists tax_percent numeric(5,2) not null default 0;
+alter table order_items add column if not exists taxable_amount numeric(12,2) not null default 0;
+alter table order_items add column if not exists cgst_amount numeric(12,2) not null default 0;
+alter table order_items add column if not exists sgst_amount numeric(12,2) not null default 0;
+alter table order_items add column if not exists price_includes_gst boolean not null default false;
+
+alter table orders add column if not exists cgst_amount numeric(12,2) not null default 0;
+alter table orders add column if not exists sgst_amount numeric(12,2) not null default 0;
+alter table orders add column if not exists prices_include_gst boolean not null default false;
