@@ -92,6 +92,56 @@ function channelLabel(value) {
   return value === "in_store" ? "In-Store" : value === "online" ? "Online" : value || "";
 }
 
+const DEFAULT_MEMBERSHIP_SETTINGS = {
+  minimum_eligible_purchase: 0,
+  regular_first_purchase_reward_percent: 10,
+  regular_repeat_purchase_reward_percent: 5,
+  referral_reward_percent: 5,
+  regular_wallet_redemption_percent: 10,
+  regular_wallet_expiry_months: 6,
+};
+
+function roundMoney(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
+function membershipSettingsPayload(row) {
+  return { ...DEFAULT_MEMBERSHIP_SETTINGS, ...(row || {}) };
+}
+
+async function getMembershipSettings(businessId) {
+  const rows = await sbSelect("membership_program_settings", `select=*&business_id=eq.${encode(businessId)}&limit=1`).catch(() => []);
+  return membershipSettingsPayload(rows[0]);
+}
+
+function walletExpiry(settings) {
+  const expiry = new Date();
+  expiry.setMonth(expiry.getMonth() + Number(settings.regular_wallet_expiry_months));
+  return expiry.toISOString();
+}
+
+function makeReferralCode(phone) {
+  return `M${Date.now().toString(36).slice(-4).toUpperCase()}`;
+}
+
+async function applyWalletTransaction({ businessId, member, orderId, type, amount, settings }) {
+  const nextBalance = roundMoney(Number(member.wallet_balance || 0) + Number(amount || 0));
+  const updated = await sbUpdate("membership_members", `id=eq.${member.id}`, {
+    wallet_balance: nextBalance,
+    wallet_expires_at: nextBalance > 0 ? walletExpiry(settings) : null,
+    last_purchase_at: new Date().toISOString()
+  });
+  await sbInsert("membership_wallet_transactions", [{
+    business_id: businessId,
+    member_id: member.id,
+    order_id: orderId || null,
+    transaction_type: type,
+    amount: roundMoney(amount),
+    balance_after: nextBalance
+  }]);
+  return updated[0] || { ...member, wallet_balance: nextBalance };
+}
+
 function getStoreCode(req) {
   return req.headers["x-store-id"] || process.env.ONECOUNTER_STORE_ID || "store-main";
 }
@@ -401,7 +451,7 @@ module.exports = async function handler(req, res) {
       }
       const order = (await sbSelect(
         "orders",
-        `select=id,order_no,customer_name,status,subtotal,tax_amount,discount_amount,total_amount,created_at,business_id,store_id&order_no=eq.${encode(id)}&limit=1`
+        `select=id,order_no,customer_name,status,subtotal,tax_amount,discount_amount,total_amount,wallet_balance_after,created_at,business_id,store_id&order_no=eq.${encode(id)}&limit=1`
       ))[0];
       if (!order) {
         sendJson(res, 404, { error: "receipt_not_found" });
@@ -426,7 +476,8 @@ module.exports = async function handler(req, res) {
           subtotal: Number(order.subtotal || 0),
           tax: Number(order.tax_amount || 0),
           discount: Number(order.discount_amount || 0),
-          total: Number(order.total_amount || 0)
+          total: Number(order.total_amount || 0),
+          wallet_balance: Number(order.wallet_balance_after || 0)
         },
         payment_modes: payments.map((p) => p.mode),
         items: items.map((it) => ({
@@ -1522,12 +1573,141 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    // ------------------------- Memberships -------------------------
+    if (pathname === "/v1/memberships/config" && req.method === "GET") {
+      const settings = await getMembershipSettings(ctx.businessId);
+      sendJson(res, 200, {
+        ...settings,
+        initialReward: Number(settings.exclusive_joining_credit),
+        claimPercent: Number(settings.regular_wallet_redemption_percent),
+        minPurchase: Number(settings.minimum_eligible_purchase)
+      });
+      return;
+    }
+
+    if (pathname === "/v1/memberships/config" && req.method === "POST") {
+      const body = await parseBody(req);
+      const current = await getMembershipSettings(ctx.businessId);
+      const patch = {
+        minimum_eligible_purchase: Number(body.minimum_eligible_purchase ?? body.minPurchase ?? current.minimum_eligible_purchase),
+        regular_first_purchase_reward_percent: Number(body.regular_first_purchase_reward_percent ?? current.regular_first_purchase_reward_percent),
+        regular_repeat_purchase_reward_percent: Number(body.regular_repeat_purchase_reward_percent ?? current.regular_repeat_purchase_reward_percent),
+        exclusive_purchase_reward_percent: Number(body.exclusive_purchase_reward_percent ?? current.exclusive_purchase_reward_percent),
+        referral_reward_percent: Number(body.referral_reward_percent ?? current.referral_reward_percent),
+        referred_first_purchase_reward_percent: Number(body.referred_first_purchase_reward_percent ?? current.referred_first_purchase_reward_percent),
+        regular_wallet_redemption_percent: Number(body.regular_wallet_redemption_percent ?? body.claimPercent ?? current.regular_wallet_redemption_percent),
+        regular_wallet_redemption_max: Number(body.regular_wallet_redemption_max ?? current.regular_wallet_redemption_max),
+        exclusive_wallet_redemption_max: Number(body.exclusive_wallet_redemption_max ?? current.exclusive_wallet_redemption_max),
+        exclusive_membership_fee: Number(body.exclusive_membership_fee ?? current.exclusive_membership_fee),
+        exclusive_joining_credit: Number(body.exclusive_joining_credit ?? body.initialReward ?? current.exclusive_joining_credit),
+        regular_wallet_expiry_months: Number(body.regular_wallet_expiry_months ?? current.regular_wallet_expiry_months),
+        exclusive_wallet_expiry_months: Number(body.exclusive_wallet_expiry_months ?? current.exclusive_wallet_expiry_months),
+        referral_gift_threshold: Number(body.referral_gift_threshold ?? current.referral_gift_threshold),
+        updated_at: new Date().toISOString()
+      };
+      const existing = await sbSelect("membership_program_settings", `select=business_id&business_id=eq.${encode(ctx.businessId)}&limit=1`);
+      const saved = existing.length
+        ? await sbUpdate("membership_program_settings", `business_id=eq.${ctx.businessId}`, patch)
+        : await sbInsert("membership_program_settings", [{ business_id: ctx.businessId, ...patch }]);
+      sendJson(res, 200, membershipSettingsPayload(saved[0]));
+      return;
+    }
+
+    if (pathname === "/v1/memberships/customer/lookup" && req.method === "GET") {
+      const url = new URL(req.url, "http://localhost");
+      const phone = String(url.searchParams.get("phone") || "").trim();
+      const rows = phone ? await sbSelect("membership_members", `select=*&business_id=eq.${encode(ctx.businessId)}&phone=eq.${encode(phone)}&limit=1`) : [];
+      if (!rows.length) {
+        sendJson(res, 200, { found: false });
+        return;
+      }
+      const member = rows[0];
+      sendJson(res, 200, { found: true, member: { ...member, wallet_balance: Number(member.wallet_balance || 0) } });
+      return;
+    }
+
+    if (pathname === "/v1/memberships/wallet-history" && req.method === "GET") {
+      const url = new URL(req.url, "http://localhost");
+      const memberId = String(url.searchParams.get("member_id") || "").trim();
+      if (!memberId) {
+        sendJson(res, 400, { error: "member_id_required" });
+        return;
+      }
+      const memberRows = await sbSelect("membership_members", `select=id&business_id=eq.${encode(ctx.businessId)}&id=eq.${encode(memberId)}&limit=1`);
+      if (!memberRows.length) {
+        sendJson(res, 404, { error: "member_not_found" });
+        return;
+      }
+      const items = await sbSelect("membership_wallet_transactions", `select=id,order_id,transaction_type,amount,balance_after,created_at&member_id=eq.${encode(memberId)}&order=created_at.desc`);
+      sendJson(res, 200, { items: items.map((item) => ({ ...item, amount: Number(item.amount || 0), balance_after: Number(item.balance_after || 0) })) });
+      return;
+    }
+
+    if (pathname === "/v1/memberships/referral-lookup" && req.method === "GET") {
+      const url = new URL(req.url, "http://localhost");
+      const code = String(url.searchParams.get("code") || "").trim().toUpperCase();
+      const rows = code ? await sbSelect("membership_members", `select=id,name,phone,referral_code&business_id=eq.${encode(ctx.businessId)}&referral_code=eq.${encode(code)}&limit=1`) : [];
+      sendJson(res, 200, rows.length ? { found: true, member: rows[0] } : { found: false });
+      return;
+    }
+
+    if (pathname === "/v1/memberships/customer/enroll" && req.method === "POST") {
+      const body = await parseBody(req);
+      const phone = String(body.phone || "").trim();
+      const name = String(body.name || "").trim();
+      const tier = body.tier === "exclusive" ? "exclusive" : "regular";
+      if (!phone || !name) {
+        sendJson(res, 400, { error: "name_and_phone_required" });
+        return;
+      }
+      const duplicate = await sbSelect("membership_members", `select=id&business_id=eq.${encode(ctx.businessId)}&phone=eq.${encode(phone)}&limit=1`);
+      if (duplicate.length) {
+        sendJson(res, 409, { error: "member_already_exists" });
+        return;
+      }
+      const settings = await getMembershipSettings(ctx.businessId);
+      const referralCode = String(body.referral_code || "").trim().toUpperCase();
+      const referrer = referralCode ? (await sbSelect("membership_members", `select=*&business_id=eq.${encode(ctx.businessId)}&referral_code=eq.${encode(referralCode)}&limit=1`))[0] : null;
+      if (referralCode && !referrer) {
+        sendJson(res, 400, { error: "invalid_referral_code" });
+        return;
+      }
+      const customers = await sbSelect("customers", `select=id&business_id=eq.${encode(ctx.businessId)}&phone=eq.${encode(phone)}&limit=1`).catch(() => []);
+      const member = (await sbInsert("membership_members", [{
+        business_id: ctx.businessId,
+        customer_id: customers[0] ? customers[0].id : null,
+        phone,
+        name,
+        tier,
+        referral_code: makeReferralCode(phone),
+        referred_by_member_id: referrer ? referrer.id : null,
+        wallet_balance: 0,
+        wallet_expires_at: null
+      }]))[0];
+      if (referrer) {
+        await sbInsert("membership_referrals", [{ business_id: ctx.businessId, referrer_member_id: referrer.id, referred_member_id: member.id }]);
+      }
+      let enrolledMember = member;
+      if (tier === "exclusive") {
+        enrolledMember = await applyWalletTransaction({ businessId: ctx.businessId, member, type: "exclusive_joining_credit", amount: settings.exclusive_joining_credit, settings });
+      }
+      sendJson(res, 201, { member: enrolledMember, exclusive_membership_fee: tier === "exclusive" ? Number(settings.exclusive_membership_fee) : 0 });
+      return;
+    }
+
+    if (pathname === "/v1/memberships/all" && req.method === "GET") {
+      const rows = await sbSelect("membership_members", `select=id,name,phone,tier,wallet_balance,wallet_expires_at,referral_code,successful_referral_count,referral_gift_pending&business_id=eq.${encode(ctx.businessId)}&order=joined_at.desc`);
+      sendJson(res, 200, { items: rows.map((member) => ({ ...member, wallet_balance: Number(member.wallet_balance || 0), rewardPoints: Number(member.wallet_balance || 0) })) });
+      return;
+    }
+
     // ------------------------- POS sale -------------------------
     if (pathname === "/v1/pos/sales" && req.method === "POST") {
       const body = await parseBody(req);
       const actor = await resolveActor(req);
       const channel = body.channel === "online" ? "online" : "in_store";
       const totals = body.totals || {};
+      const items = Array.isArray(body.items) ? body.items : [];
       const orderNo = `${channel === "online" ? "ONLINE" : "SALE"}-${Date.now()}`;
 
       // Resolve or create the customer from phone/name when provided.
@@ -1571,6 +1751,40 @@ module.exports = async function handler(req, res) {
         }
       }
 
+      const membershipSettings = await getMembershipSettings(ctx.businessId);
+      let member = custPhone
+        ? (await sbSelect("membership_members", `select=*&business_id=eq.${encode(ctx.businessId)}&phone=eq.${encode(custPhone)}&limit=1`).catch(() => []))[0]
+        : null;
+      if (!member && custPhone && markPaid) {
+        const referralCode = String(body.customer && body.customer.referral_code || "").trim().toUpperCase();
+        const referrer = referralCode
+          ? (await sbSelect("membership_members", `select=*&business_id=eq.${encode(ctx.businessId)}&referral_code=eq.${encode(referralCode)}&limit=1`))[0]
+          : null;
+        member = (await sbInsert("membership_members", [{
+          business_id: ctx.businessId,
+          customer_id: customerId,
+          phone: custPhone,
+          name: custName,
+          tier: "regular",
+          referral_code: makeReferralCode(custPhone),
+          referred_by_member_id: referrer ? referrer.id : null,
+          wallet_balance: 0,
+          wallet_expires_at: null
+        }]))[0];
+        if (referrer) {
+          await sbInsert("membership_referrals", [{ business_id: ctx.businessId, referrer_member_id: referrer.id, referred_member_id: member.id }]);
+        }
+      }
+      const originalTotal = roundMoney(totals.total_amount);
+      const isEligiblePurchase = markPaid && originalTotal > 0;
+      const walletExpired = member && member.wallet_expires_at && new Date(member.wallet_expires_at) <= new Date();
+      const availableWallet = member && !walletExpired ? Number(member.wallet_balance || 0) : 0;
+      const requestedRedemption = Boolean(body.use_membership_discount) && member && isEligiblePurchase;
+      const membershipDiscount = requestedRedemption
+        ? roundMoney(Math.min(availableWallet * Number(membershipSettings.regular_wallet_redemption_percent) / 100, originalTotal))
+        : 0;
+      const finalTotal = roundMoney(originalTotal - membershipDiscount);
+
       const insertedOrder = await sbInsert("orders", [
         {
           business_id: ctx.businessId,
@@ -1588,15 +1802,50 @@ module.exports = async function handler(req, res) {
           cgst_amount: Number(totals.cgst_amount || 0),
           sgst_amount: Number(totals.sgst_amount || 0),
           prices_include_gst: Boolean(totals.prices_include_gst),
-          discount_amount: Number(totals.discount_amount || 0),
-          total_amount: Number(totals.total_amount || 0),
+          discount_amount: roundMoney(Number(totals.discount_amount || 0) + membershipDiscount),
+          total_amount: finalTotal,
+          wallet_balance_after: 0,
           sold_by_user_id: actor ? actor.id : null,
           sold_by_name: actor ? (actor.name || actor.email) : null
         }
       ]);
       const orderId = insertedOrder[0].id;
 
-      const items = Array.isArray(body.items) ? body.items : [];
+      let updatedMember = member;
+      let walletReward = 0;
+      let referralReward = 0;
+      if (member && walletExpired && Number(member.wallet_balance || 0) > 0) {
+        updatedMember = await applyWalletTransaction({ businessId: ctx.businessId, member, orderId, type: "expiry_adjustment", amount: -Number(member.wallet_balance), settings: membershipSettings });
+      }
+      if (member && membershipDiscount > 0) {
+        updatedMember = await applyWalletTransaction({ businessId: ctx.businessId, member: updatedMember, orderId, type: "wallet_redemption", amount: -membershipDiscount, settings: membershipSettings });
+      }
+      if (member && isEligiblePurchase) {
+        const isFirstEligiblePurchase = Number(member.eligible_purchase_count || 0) === 0;
+        const rewardRate = isFirstEligiblePurchase
+          ? Number(membershipSettings.regular_first_purchase_reward_percent)
+          : Number(membershipSettings.regular_repeat_purchase_reward_percent);
+        walletReward = roundMoney(finalTotal * rewardRate / 100);
+        updatedMember = await applyWalletTransaction({ businessId: ctx.businessId, member: updatedMember, orderId, type: "purchase_reward", amount: walletReward, settings: membershipSettings });
+        updatedMember = (await sbUpdate("membership_members", `id=eq.${member.id}`, {
+          eligible_purchase_count: Number(member.eligible_purchase_count || 0) + 1
+        }))[0] || updatedMember;
+
+        if (isFirstEligiblePurchase && member.referred_by_member_id) {
+          const referral = (await sbSelect("membership_referrals", `select=*&referred_member_id=eq.${member.id}&status=eq.pending&limit=1`))[0];
+          const referrer = referral && (await sbSelect("membership_members", `select=*&id=eq.${referral.referrer_member_id}&limit=1`))[0];
+          if (referrer) {
+            referralReward = roundMoney(finalTotal * Number(membershipSettings.referral_reward_percent) / 100);
+            await applyWalletTransaction({ businessId: ctx.businessId, member: referrer, orderId, type: "referral_reward", amount: referralReward, settings: membershipSettings });
+            await sbUpdate("membership_referrals", `id=eq.${referral.id}`, { status: "successful", successful_order_id: orderId, completed_at: new Date().toISOString() });
+          }
+        }
+
+      }
+      if (updatedMember) {
+        await sbUpdate("orders", `id=eq.${orderId}`, { wallet_balance_after: Number(updatedMember.wallet_balance || 0) });
+      }
+
       for (const line of items) {
         let productId = null;
         const prod = await sbSelect("products", `select=id&sku=eq.${encode(line.sku)}&business_id=eq.${ctx.businessId}&limit=1`).catch(() => []);
@@ -1649,7 +1898,7 @@ module.exports = async function handler(req, res) {
       const payments = markPaid && Array.isArray(body.payments) ? body.payments : [];
       for (const pay of payments) {
         await sbInsert("order_payments", [
-          { business_id: ctx.businessId, order_id: orderId, mode: pay.mode, amount: Number(pay.amount || 0) }
+          { business_id: ctx.businessId, order_id: orderId, mode: pay.mode, amount: finalTotal }
         ]);
       }
 
@@ -1664,7 +1913,15 @@ module.exports = async function handler(req, res) {
         }
       ]);
 
-      sendJson(res, 201, { sale_id: orderNo, status: markPaid ? "paid" : "created" });
+      sendJson(res, 201, {
+        sale_id: orderNo,
+        status: markPaid ? "paid" : "created",
+        membership_discount: membershipDiscount,
+        wallet_reward: walletReward,
+        referral_reward: referralReward,
+        reward_balance: updatedMember ? Number(updatedMember.wallet_balance || 0) : 0,
+        total_amount: finalTotal
+      });
       return;
     }
 

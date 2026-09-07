@@ -73,11 +73,15 @@ async function runBackup() {
   let expenseRows = 0;
   let customerRows = 0;
   try {
-    const [orders, orderItems, expenses, customers] = await Promise.all([
+    const [orders, orderItems, expenses, customers, members, walletTransactions, referrals, membershipSettings] = await Promise.all([
       sbSelect("orders", "select=id,business_id,order_no,store_id,channel,customer_name,status,subtotal,tax_amount,cgst_amount,sgst_amount,prices_include_gst,discount_amount,total_amount,delivery_address,delivery_city,delivery_pincode,sold_by_user_id,sold_by_name,created_at&order=created_at.desc"),
       sbSelect("order_items", "select=order_id,sku,name,quantity,unit_price,line_total,tax_percent,taxable_amount,cgst_amount,sgst_amount,price_includes_gst"),
       sbSelect("expenses", "select=business_id,id,store_id,expense_date,expense_at,category,description,amount,payment_mode,recorded_by_user_id,recorded_by_name,created_at&order=expense_at.desc"),
-      sbSelect("customers", "select=business_id,customer_code,name,phone,place,full_address,city,pincode,created_at&order=created_at.desc")
+      sbSelect("customers", "select=business_id,customer_code,name,phone,place,full_address,city,pincode,created_at&order=created_at.desc"),
+      sbSelect("membership_members", "select=id,business_id,name,phone,tier,referral_code,wallet_balance,wallet_expires_at,eligible_purchase_count,successful_referral_count,joined_at,last_purchase_at&order=joined_at.desc"),
+      sbSelect("membership_wallet_transactions", "select=business_id,member_id,order_id,transaction_type,amount,balance_after,created_at&order=created_at.desc"),
+      sbSelect("membership_referrals", "select=business_id,referrer_member_id,referred_member_id,successful_order_id,status,completed_at,created_at&order=created_at.desc"),
+      sbSelect("membership_program_settings", "select=business_id,regular_first_purchase_reward_percent,regular_repeat_purchase_reward_percent,referral_reward_percent,regular_wallet_redemption_percent,regular_wallet_expiry_months,updated_at")
     ]);
     businessIds = Array.from(new Set([...orders, ...expenses, ...customers].map((row) => row.business_id).filter(Boolean)));
     salesRows = orders.length;
@@ -104,6 +108,29 @@ async function runBackup() {
       replaceSheetRows(token, "Customers", [
         ["Backup At", "Customer Code", "Name", "Phone", "Place", "Full Address", "City", "Pincode", "Customer Created At"],
         ...customers.map((customer) => [backupAt, customer.customer_code, customer.name, customer.phone, customer.place, customer.full_address, customer.city, customer.pincode, customer.created_at])
+      ]),
+      replaceSheetRows(token, "Memberships", [
+        ["Backup At", "Name", "Mobile", "Wallet Balance", "Referral Code", "Eligible Purchases", "Successful Referrals", "Wallet Expires", "Joined At", "Last Purchase At"],
+        ...members.map((member) => [backupAt, member.name, member.phone, member.wallet_balance, member.referral_code, member.eligible_purchase_count, member.successful_referral_count, member.wallet_expires_at, member.joined_at, member.last_purchase_at])
+      ]),
+      replaceSheetRows(token, "Wallet Transactions", [
+        ["Backup At", "Member Mobile", "Order ID", "Transaction Type", "Amount", "Balance After", "Created At"],
+        ...walletTransactions.map((transaction) => {
+          const member = members.find((row) => row.id === transaction.member_id);
+          return [backupAt, member ? member.phone : "", transaction.order_id, transaction.transaction_type, transaction.amount, transaction.balance_after, transaction.created_at];
+        })
+      ]),
+      replaceSheetRows(token, "Referrals", [
+        ["Backup At", "Referrer Mobile", "Referred Mobile", "Successful Order ID", "Status", "Completed At", "Created At"],
+        ...referrals.map((referral) => {
+          const referrer = members.find((row) => row.id === referral.referrer_member_id);
+          const referred = members.find((row) => row.id === referral.referred_member_id);
+          return [backupAt, referrer ? referrer.phone : "", referred ? referred.phone : "", referral.successful_order_id, referral.status, referral.completed_at, referral.created_at];
+        })
+      ]),
+      replaceSheetRows(token, "Membership Settings", [
+        ["Backup At", "Business ID", "First Purchase Credit %", "Later Purchase Credit %", "Referral Credit %", "Wallet Redemption %", "Wallet Inactivity Expiry (Months)", "Updated At"],
+        ...membershipSettings.map((setting) => [backupAt, setting.business_id, setting.regular_first_purchase_reward_percent, setting.regular_repeat_purchase_reward_percent, setting.referral_reward_percent, setting.regular_wallet_redemption_percent, setting.regular_wallet_expiry_months, setting.updated_at])
       ])
     ]);
     await recordSyncRuns(businessIds, { status: "success", salesRows, expenseRows, customerRows });

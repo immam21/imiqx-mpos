@@ -102,6 +102,7 @@
         <div><span>SGST${gst.rate}</span><span>${money(gst.sgst)}</span></div>
         ${data.totals.discount ? `<div><span>Discount</span><span>-${money(data.totals.discount)}</span></div>` : ""}
         <div class="grand"><span>Total</span><span>${money(data.totals.total)}</span></div>
+        <div><span>Reward wallet balance</span><span>${money(data.totals.wallet_balance)}</span></div>
       </div>
       <div class="foot">
         Paid via ${(data.payment_modes || ["cash"]).join(", ").toUpperCase()}<br/>

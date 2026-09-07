@@ -1004,6 +1004,8 @@
     whatsappReceipt: "/v1/integrations/whatsapp/send-receipt",
     membershipConfig: "/v1/memberships/config",
     membershipLookup: "/v1/memberships/customer/lookup",
+    membershipWalletHistory: "/v1/memberships/wallet-history",
+    membershipReferralLookup: "/v1/memberships/referral-lookup",
     membershipEnroll: "/v1/memberships/customer/enroll",
     membershipAll: "/v1/memberships/all",
     settings: "/v1/business/setup",
@@ -1025,10 +1027,12 @@
   };
 
   const POS_STATE = {
-    customer: { mode: "new", name: "", phone: "", place: "", existing: false, searched: false, lookupPhone: "" },
+    customer: { mode: "new", name: "", phone: "", place: "", referralCode: "", referrerName: "", existing: false, searched: false, lookupPhone: "" },
     cart: [],
     paymentMode: "cash",
     markPaid: true,
+    member: null,
+    useMembershipDiscount: false,
     catalog: [],
     lastSale: null
   };
@@ -1494,6 +1498,14 @@
     return { ...totals, ...split, prices_include_gst: pricesIncludeGst() };
   }
 
+  function membershipDiscountPreview(totals) {
+    const member = POS_STATE.member;
+    if (!POS_STATE.useMembershipDiscount || !member || Number(totals.total || 0) <= 0) return 0;
+    if (member.wallet_expires_at && new Date(member.wallet_expires_at) <= new Date()) return 0;
+    const rate = Number(appState.membershipConfig?.regular_wallet_redemption_percent ?? 10);
+    return Math.round(Math.min(Number(member.wallet_balance || 0) * rate / 100, Number(totals.total || 0)) * 100) / 100;
+  }
+
   function formatDateTime(value) {
     return value ? new Date(value).toLocaleString("en-IN") : "-";
   }
@@ -1864,12 +1876,31 @@
         POS_STATE.customer.existing = false;
         showToast("No existing customer found for this mobile number");
       }
+      const membership = await apiFetch(`${API_ENDPOINTS.membershipLookup}?phone=${encodeURIComponent(phone)}`).catch(() => ({ found: false }));
+      POS_STATE.member = membership.found ? membership.member : null;
+      POS_STATE.useMembershipDiscount = false;
       POS_STATE.customer.searched = true;
       POS_STATE.customer.lookupPhone = phone;
       posRerender();
     } catch (_) {
       showToast("Customer search failed");
     }
+  }
+
+  async function posReferralLookup() {
+    const code = (POS_STATE.customer.referralCode || "").trim().toUpperCase();
+    POS_STATE.customer.referrerName = "";
+    if (!code) {
+      posRerender();
+      return;
+    }
+    try {
+      const result = await apiFetch(`${API_ENDPOINTS.membershipReferralLookup}?code=${encodeURIComponent(code)}`);
+      POS_STATE.customer.referrerName = result.found ? result.member.name : "Invalid referral code";
+    } catch (_) {
+      POS_STATE.customer.referrerName = "Unable to verify referral code";
+    }
+    posRerender();
   }
 
   function posConfirmOrder() {
@@ -1895,13 +1926,12 @@
     }
     const markPaid = POS_STATE.markPaid;
     const t = posTaxBreakdown();
-    
-    // Get membership discount option
-    const useMembershipDiscount = document.getElementById('pos-use-membership-discount')?.checked || false;
+    const membershipDiscount = membershipDiscountPreview(t);
+    const orderTotals = { ...t, discount: membershipDiscount, total: Math.round((t.total - membershipDiscount) * 100) / 100 };
     
     PENDING_ORDER = {
-      totals: t,
-      customer: { name: custName, phone: custPhone, place: custPlace },
+      totals: orderTotals,
+      customer: { name: custName, phone: custPhone, place: custPlace, referral_code: POS_STATE.customer.referralCode },
       items: POS_STATE.cart.map((l) => ({ ...l })),
       mode: POS_STATE.paymentMode,
       paid: markPaid,
@@ -1909,7 +1939,7 @@
       store_id: appState.currentStoreId,
       business_id: APP_CONFIG.businessId,
       channel: "in_store",
-      customer: { name: custName, phone: custPhone, place: custPlace },
+      customer: { name: custName, phone: custPhone, place: custPlace, referral_code: POS_STATE.customer.referralCode },
       status: markPaid ? "paid" : "created",
       items: POS_STATE.cart.map((l) => {
         const lineTotal = Math.round(l.qty * l.unit_price * 100) / 100;
@@ -1930,7 +1960,7 @@
       }),
       totals: { subtotal: t.subtotal, tax_amount: t.tax, cgst_amount: t.cgst, sgst_amount: t.sgst, discount_amount: 0, total_amount: t.total, prices_include_gst: t.prices_include_gst },
       payments: markPaid ? [{ mode: POS_STATE.paymentMode, amount: t.total }] : [],
-      use_membership_discount: useMembershipDiscount
+      use_membership_discount: POS_STATE.useMembershipDiscount
       }
     };
     openOrderReview(PENDING_ORDER);
@@ -1976,7 +2006,11 @@
       const sale = {
         sale_id: data.sale_id,
         items: pending.items,
-        totals: pending.totals,
+        totals: {
+          ...pending.totals,
+          discount: Number(pending.totals.discount || 0) + Number(data.membership_discount || 0),
+          total: Number(data.total_amount ?? pending.totals.total)
+        },
         customer: pending.customer,
         mode: pending.mode,
         paid: pending.paid,
@@ -2425,6 +2459,13 @@
     doc.text("TOTAL", 2.9, y, { align: "right" });
     doc.text(pdfMoney(sale.totals.total), right, y, { align: "right" });
     y += 0.22;
+    if (sale.reward_balance !== undefined) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.text("Reward wallet balance", 2.9, y, { align: "right" });
+      doc.text(pdfMoney(sale.reward_balance), right, y, { align: "right" });
+      y += 0.18;
+    }
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.text(`Paid via ${String(sale.mode || "cash").toUpperCase()}`, left, y);
@@ -2734,6 +2775,8 @@
 
     pos() {
       const t = posTotals();
+      const membershipDiscount = membershipDiscountPreview(t);
+      const payableTotal = Math.round((t.total - membershipDiscount) * 100) / 100;
       const cust = POS_STATE.customer;
       const mode = POS_STATE.paymentMode;
       const isNewCustomer = cust.mode !== "existing";
@@ -2762,6 +2805,7 @@
             <label class="field" style="grid-column: span 2;"><span aria-hidden="true">Customer Name *</span><input id="pos-cust-name" type="text" required placeholder="Name" value="${cust.name}" ${!isNewCustomer ? "readonly" : ""} /></label>
             <label class="field" style="grid-column: span 2;"><span aria-hidden="true">Place *</span><input id="pos-cust-place" type="text" required placeholder="City / locality" value="${cust.place}" ${!isNewCustomer ? "readonly" : ""} /></label>
           </div>
+          ${isNewCustomer ? `<div class="grid four-col" style="margin-top:10px; align-items:end;"><label class="field" style="grid-column:span 2;"><span>Referral code</span><input id="pos-referral-code" type="text" maxlength="5" autocomplete="off" placeholder="5-character code" value="${cust.referralCode}" /></label><div class="muted" style="font-size:12px; grid-column:span 2;">${cust.referrerName ? `Referred by: ${cust.referrerName}` : ""}</div></div>` : ""}
         </div>
 
         <div class="section card reveal">
@@ -2793,21 +2837,22 @@
               <div style="display:flex; justify-content:space-between;"><span>Subtotal</span><span>${money(t.subtotal)}</span></div>
               <div style="display:flex; justify-content:space-between;"><span>${gstComponentLabel("CGST", t)}</span><span>${money(splitGst(t.tax).cgst)}</span></div>
               <div style="display:flex; justify-content:space-between;"><span>${gstComponentLabel("SGST", t)}</span><span>${money(splitGst(t.tax).sgst)}</span></div>
+              ${membershipDiscount > 0 ? `<div style="display:flex; justify-content:space-between; color:var(--color-success);"><span>Wallet discount</span><span>-${money(membershipDiscount)}</span></div>` : ""}
             </div>
             <div style="margin: 10px 0; border-top: 1px dashed var(--color-border); padding-top: 10px; display:flex; justify-content:space-between;">
-              <strong>Total Payable</strong><strong class="mono">${money(t.total)}</strong>
+              <strong>Total Payable</strong><strong class="mono">${money(payableTotal)}</strong>
             </div>
             <fieldset style="border:0; padding:0; margin:0 0 10px; display:flex; gap:16px; flex-wrap:wrap;">
               <legend class="sr-only">Payment method</legend>
               <label style="display:flex; align-items:center; gap:7px; font-size:13px; font-weight:600;"><input type="radio" name="pos-payment-mode" value="cash" ${mode === "cash" ? "checked" : ""} /> Cash</label>
               <label style="display:flex; align-items:center; gap:7px; font-size:13px; font-weight:600;"><input type="radio" name="pos-payment-mode" value="upi" ${mode === "upi" ? "checked" : ""} /> UPI</label>
             </fieldset>
-            ${mode === "upi" ? `<div style="text-align:center; margin-bottom:10px;"><div id="upi-qr" style="display:inline-block; padding:6px; background:#fff;"></div><div class="muted" style="font-size:11px; margin-top:4px;">Scan to pay ${money(t.total)} (placeholder QR)</div></div>` : ""}
+            ${mode === "upi" ? `<div style="text-align:center; margin-bottom:10px;"><div id="upi-qr" style="display:inline-block; padding:6px; background:#fff;"></div><div class="muted" style="font-size:11px; margin-top:4px;">Scan to pay ${money(payableTotal)} (placeholder QR)</div></div>` : ""}
             <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin-bottom:10px;">
               <input id="pos-mark-paid-check" type="checkbox" ${POS_STATE.markPaid ? "checked" : ""} /> Mark as paid
             </label>
             <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin-bottom:10px;">
-              <input id="pos-use-membership-discount" type="checkbox" /> Use Membership Discount
+              <input id="pos-use-membership-discount" type="checkbox" ${POS_STATE.useMembershipDiscount ? "checked" : ""} ${POS_STATE.member ? "" : "disabled"} /> Use Membership Discount${POS_STATE.member ? ` (${POS_STATE.member.tier} wallet: ${money(POS_STATE.member.wallet_balance)})` : ""}
             </label>
             <div class="grid two-col">
               <button class="btn primary" type="button" data-action="pos-confirm-order">Confirm Order</button>
@@ -3077,15 +3122,17 @@
     },
 
     memberships() {
-      const config = appState.membershipConfig || { initialReward: 250, claimPercent: 10, minPurchase: 500 };
+      const config = appState.membershipConfig || { regular_first_purchase_reward_percent: 10, regular_repeat_purchase_reward_percent: 5, referral_reward_percent: 5, regular_wallet_redemption_percent: 10, regular_wallet_expiry_months: 6 };
       const members = (appState.members && appState.members.items) || [];
       return `
         <div class="section card reveal">
           <h3 class="panel-title">Membership Program Settings</h3>
           <div class="grid three-col">
-            <label class="field"><span>Initial Reward (₹)</span><input id="membership-initial-reward" type="number" min="0" step="10" value="${config.initialReward}" /></label>
-            <label class="field"><span>Claim Percentage (%)</span><input id="membership-claim-percent" type="number" min="0" max="100" step="1" value="${config.claimPercent}" /></label>
-            <label class="field"><span>Min Purchase for Claim (₹)</span><input id="membership-min-purchase" type="number" min="0" step="10" value="${config.minPurchase}" /></label>
+            <label class="field"><span>First purchase credit (%)</span><input id="membership-first-reward" type="number" min="0" max="100" step="0.01" value="${config.regular_first_purchase_reward_percent}" /></label>
+            <label class="field"><span>Later purchase credit (%)</span><input id="membership-repeat-reward" type="number" min="0" max="100" step="0.01" value="${config.regular_repeat_purchase_reward_percent}" /></label>
+            <label class="field"><span>Referral credit (%)</span><input id="membership-referral-reward" type="number" min="0" max="100" step="0.01" value="${config.referral_reward_percent}" /></label>
+            <label class="field"><span>Wallet redemption (%)</span><input id="membership-redemption-percent" type="number" min="0" max="100" step="0.01" value="${config.regular_wallet_redemption_percent}" /></label>
+            <label class="field"><span>Wallet inactivity expiry (months)</span><input id="membership-expiry-months" type="number" min="1" max="60" step="1" value="${config.regular_wallet_expiry_months}" /></label>
           </div>
           <div style="margin-top:10px;"><button class="btn primary" type="button" data-action="save-membership-config">Save Settings</button></div>
         </div>
@@ -3094,7 +3141,7 @@
           <h3 class="panel-title">Member Lookup</h3>
           <div class="grid two-col" style="align-items:end;">
             <label class="field"><span>Customer Mobile</span><input id="member-lookup-phone" type="tel" inputmode="numeric" placeholder="10-digit mobile" /></label>
-            <button class="btn" type="button" data-action="lookup-member">Lookup Member</button>
+            <button id="lookup-member" class="btn" type="button" data-action="lookup-member">Lookup Member</button>
           </div>
           <div id="member-lookup-result" style="margin-top:10px;">
             <p class="muted" style="font-size:12px;">Search for a member by their mobile number to view their reward balance.</p>
@@ -3105,9 +3152,9 @@
           <h3 class="panel-title">All Members</h3>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Name</th><th>Mobile</th><th>Reward Points (₹)</th></tr></thead>
+              <thead><tr><th>Name</th><th>Mobile</th><th>Tier</th><th>Wallet (₹)</th><th>Referral Code</th></tr></thead>
               <tbody id="members-list">
-                ${members.map(m => `<tr><td>${m.name}</td><td class="mono">${m.phone}</td><td class="mono">${money(m.rewardPoints)}</td></tr>`).join("") || `<tr><td colspan="3">No members yet.</td></tr>`}
+                ${members.map(m => `<tr><td>${m.name}</td><td class="mono">${m.phone}</td><td>${m.tier}</td><td class="mono">${money(m.wallet_balance)}</td><td class="mono">${m.referral_code}</td></tr>`).join("") || `<tr><td colspan="5">No members yet.</td></tr>`}
               </tbody>
             </table>
           </div>
@@ -3549,8 +3596,27 @@
                 resultDiv.innerHTML = `
                   <div class="alert-row"><span>Name</span><span class="mono">${result.member.name}</span></div>
                   <div class="alert-row"><span>Mobile</span><span class="mono">${result.member.phone}</span></div>
-                  <div class="alert-row"><span>Reward Points</span><span class="mono">${money(result.member.rewardPoints)}</span></div>
+                  <div class="alert-row"><span>Membership</span><span class="mono">${result.member.tier}</span></div>
+                  <div class="alert-row"><span>Wallet balance</span><span class="mono">${money(result.member.wallet_balance)}</span></div>
+                  <div class="alert-row"><span>Referral code</span><span class="mono">${result.member.referral_code}</span></div>
+                  <div id="member-wallet-history" style="margin-top:14px;"><p class="muted" style="font-size:12px;">Loading wallet history...</p></div>
                 `;
+                apiFetch(`${API_ENDPOINTS.membershipWalletHistory}?member_id=${encodeURIComponent(result.member.id)}`)
+                  .then((history) => {
+                    const historyDiv = document.getElementById("member-wallet-history");
+                    if (!historyDiv) return;
+                    const rows = history.items || [];
+                    historyDiv.innerHTML = `
+                      <h4 class="panel-title" style="font-size:13px; margin-bottom:8px;">Credit Wallet History</h4>
+                      <div class="table-wrap"><table>
+                        <thead><tr><th>Date</th><th>Activity</th><th>Credit / Debit (₹)</th><th>Balance (₹)</th></tr></thead>
+                        <tbody>${rows.map((entry) => `<tr><td class="mono">${new Date(entry.created_at).toLocaleString("en-IN")}</td><td>${String(entry.transaction_type || "").replaceAll("_", " ")}</td><td class="mono">${money(entry.amount)}</td><td class="mono">${money(entry.balance_after)}</td></tr>`).join("") || `<tr><td colspan="4">No wallet activity yet.</td></tr>`}</tbody>
+                      </table></div>`;
+                  })
+                  .catch(() => {
+                    const historyDiv = document.getElementById("member-wallet-history");
+                    if (historyDiv) historyDiv.innerHTML = `<p class="muted" style="font-size:12px;">Wallet history could not be loaded.</p>`;
+                  });
               } else {
                 resultDiv.innerHTML = `<p class="muted" style="font-size:12px; color:var(--color-danger);">No member found with this mobile number</p>`;
               }
@@ -3563,34 +3629,26 @@
 
       const saveConfigBtn = document.getElementById("save-membership-config");
       if (saveConfigBtn) {
-        saveConfigBtn.addEventListener("click", () => {
-          const initialReward = document.getElementById("membership-initial-reward").value;
-          const claimPercent = document.getElementById("membership-claim-percent").value;
-          const minPurchase = document.getElementById("membership-min-purchase").value;
-          
-          if (!initialReward || !claimPercent || !minPurchase) {
-            showToast("Please fill in all fields");
+        saveConfigBtn.addEventListener("click", async () => {
+          const fields = {
+            regular_first_purchase_reward_percent: "membership-first-reward",
+            regular_repeat_purchase_reward_percent: "membership-repeat-reward",
+            referral_reward_percent: "membership-referral-reward",
+            regular_wallet_redemption_percent: "membership-redemption-percent",
+            regular_wallet_expiry_months: "membership-expiry-months"
+          };
+          const payload = Object.fromEntries(Object.entries(fields).map(([key, id]) => [key, Number(document.getElementById(id).value)]));
+          if (Object.values(payload).some((value) => !Number.isFinite(value) || value < 0) || payload.regular_wallet_expiry_months < 1) {
+            showToast("Enter valid membership settings");
             return;
           }
-          
-          apiFetch(API_ENDPOINTS.membershipConfig, {
-            method: "POST",
-            body: JSON.stringify({
-              initialReward: parseInt(initialReward),
-              claimPercent: parseInt(claimPercent),
-              minPurchase: parseInt(minPurchase)
-            })
-          })
-          .then(result => {
+          try {
+            appState.membershipConfig = await apiFetch(API_ENDPOINTS.membershipConfig, { method: "POST", body: JSON.stringify(payload) });
             showToast("Membership settings saved");
-            // Reload the page to show updated values
-            if (appState.activeTab === "memberships") {
-              setActive("memberships");
-            }
-          })
-          .catch(err => {
+            setActive("memberships");
+          } catch (err) {
             showToast("Failed to save settings: " + (err.message || "error"));
-          });
+          }
         });
       }
 
@@ -3603,11 +3661,13 @@
             <tr>
               <td>${m.name}</td>
               <td class="mono">${m.phone}</td>
-              <td class="mono">${money(m.rewardPoints)}</td>
+              <td>${m.tier}</td>
+              <td class="mono">${money(m.wallet_balance)}</td>
+              <td class="mono">${m.referral_code}</td>
             </tr>
           `).join("");
         } else {
-          membersList.innerHTML = `<tr><td colspan="3">No members yet.</td></tr>`;
+          membersList.innerHTML = `<tr><td colspan="5">No members yet.</td></tr>`;
         }
       }
     }
@@ -3844,12 +3904,21 @@
       POS_STATE.customer.phone = event.target.value;
       POS_STATE.customer.searched = false;
       POS_STATE.customer.existing = false;
+      POS_STATE.member = null;
+      POS_STATE.useMembershipDiscount = false;
+      POS_STATE.customer.referralCode = "";
+      POS_STATE.customer.referrerName = "";
       const digits = event.target.value.replace(/\D/g, "").slice(-10);
       if (POS_STATE.customer.mode === "existing" && digits.length === 10 && POS_STATE.customer.lookupPhone !== event.target.value) {
         posCustomerSearch();
       }
     } else if (event.target.id === "pos-cust-place") {
       POS_STATE.customer.place = event.target.value;
+    } else if (event.target.id === "pos-referral-code") {
+      POS_STATE.customer.referralCode = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5);
+      if (POS_STATE.customer.referralCode.length === 5) {
+        posReferralLookup();
+      }
     }
   });
 
@@ -3862,6 +3931,9 @@
       });
     } else if (event.target.id === "pos-mark-paid-check") {
       POS_STATE.markPaid = event.target.checked;
+    } else if (event.target.id === "pos-use-membership-discount") {
+      POS_STATE.useMembershipDiscount = event.target.checked;
+      posRerender();
     } else if (event.target.name === "pos-payment-mode") {
       posSetPayment(event.target.value);
     } else if (event.target.name === "pos-customer-mode") {
@@ -3870,6 +3942,10 @@
       POS_STATE.customer.searched = false;
       POS_STATE.customer.existing = false;
       POS_STATE.customer.lookupPhone = "";
+      POS_STATE.customer.referralCode = "";
+      POS_STATE.customer.referrerName = "";
+      POS_STATE.member = null;
+      POS_STATE.useMembershipDiscount = false;
       if (isNewCustomer) {
         POS_STATE.customer.name = "";
         POS_STATE.customer.place = "";
