@@ -888,6 +888,28 @@
   <div class="modal-card stock-modal-card" id="stock-modal-content"></div>
 </div>
 
+<div id="label-print-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="label-print-title">
+  <div class="modal-card">
+    <h2 id="label-print-title" class="modal-title">Print Barcode Labels</h2>
+    <form id="label-print-form" class="auth-form">
+      <label>Label size
+        <select id="label-print-size">
+          <option value="25x20">25 x 20 mm</option>
+          <option value="50x25" selected>50 x 25 mm</option>
+          <option value="38x25">38 x 25 mm</option>
+        </select>
+      </label>
+      <label>Copies per product
+        <input id="label-print-copies" type="number" min="1" max="100" step="1" value="1" inputmode="numeric" required />
+      </label>
+      <div class="modal-actions">
+        <button class="btn" type="button" data-action="close-label-print-modal">Cancel</button>
+        <button class="btn primary" type="submit">Create Print Labels</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div id="online-order-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="online-order-modal-title">
   <div class="modal-card stock-modal-card" id="online-order-modal-content"></div>
 </div>
@@ -1442,6 +1464,19 @@
     return { subtotal, tax, total: Math.round((subtotal + tax) * 100) / 100 };
   }
 
+  function splitGst(tax) {
+    const cgst = Math.round((Number(tax) || 0) * 50) / 100;
+    return { cgst, sgst: Math.round(((Number(tax) || 0) - cgst) * 100) / 100 };
+  }
+
+  function gstComponentLabel(component, totals) {
+    const subtotal = Number(totals && totals.subtotal) || 0;
+    const tax = Number(totals && totals.tax) || 0;
+    if (!(subtotal > 0) || !(tax > 0)) return component;
+    const rate = Math.round((tax / subtotal * 50) * 100) / 100;
+    return `${component} (${rate}%)`;
+  }
+
   function formatDateTime(value) {
     return value ? new Date(value).toLocaleString("en-IN") : "-";
   }
@@ -1888,7 +1923,8 @@
       <div class="table-wrap"><table><thead><tr><th>Item</th><th>Qty</th><th>Amount</th></tr></thead><tbody>${order.items.map((line) => `<tr><td>${escapeAttr(line.name)}</td><td class="mono">${line.qty}</td><td class="mono">${money(line.qty * line.unit_price)}</td></tr>`).join("")}</tbody></table></div>
       <div class="mono" style="padding:10px; background:#F8FAFC; border-radius:8px; display:grid; gap:6px;">
         <div style="display:flex; justify-content:space-between;"><span>Subtotal</span><span>${money(order.totals.subtotal)}</span></div>
-        <div style="display:flex; justify-content:space-between;"><span>GST</span><span>${money(order.totals.tax)}</span></div>
+        <div style="display:flex; justify-content:space-between;"><span>${gstComponentLabel("CGST", order.totals)}</span><span>${money(splitGst(order.totals.tax).cgst)}</span></div>
+        <div style="display:flex; justify-content:space-between;"><span>${gstComponentLabel("SGST", order.totals)}</span><span>${money(splitGst(order.totals.tax).sgst)}</span></div>
         <div style="display:flex; justify-content:space-between; font-weight:700;"><span>Total</span><span>${money(order.totals.total)}</span></div>
       </div>`;
     submit.textContent = order.paid ? "Confirm & Mark Paid" : "Confirm Order";
@@ -1977,7 +2013,8 @@
       `Customer: ${sale.customer.name}\n\n` +
       `${lines}\n\n` +
       `Subtotal: ${money(sale.totals.subtotal)}\n` +
-      `GST: ${money(sale.totals.tax)}\n` +
+      `${gstComponentLabel("CGST", sale.totals)}: ${money(splitGst(sale.totals.tax).cgst)}\n` +
+      `${gstComponentLabel("SGST", sale.totals)}: ${money(splitGst(sale.totals.tax).sgst)}\n` +
       `*Total: ${money(sale.totals.total)}*\n` +
       `${sale.paid === false ? "Payment: PENDING" : "Paid via " + String(sale.mode || "cash").toUpperCase()}\n\n` +
       `View your e-bill: ${ebillUrl}\n\n` +
@@ -2128,6 +2165,13 @@
     return "Rs " + Number(n || 0).toFixed(2);
   }
 
+  const LABEL_SIZES = {
+    "25x20": { width: 25, height: 20, businessY: 2.7, businessSize: 5.5, nameY: 5, nameSize: 4.5, nameLength: 20, codeY: 6.8, codeSize: 4.2, priceY: 10.2, mrpSize: 4.8, offerSize: 7.4, tagX: 14, tagY: 7.3, tagWidth: 8.5, barcodeX: 2, barcodeY: 12, barcodeWidth: 21, barcodeHeight: 4.2, barcodeValueY: 18.2, barcodeValueSize: 4.5 },
+    "50x25": { width: 50, height: 25, businessY: 3.8, businessSize: 9, nameY: 7.2, nameSize: 7.5, nameLength: 34, codeY: 10.1, codeSize: 6, priceY: 14, mrpSize: 7, offerSize: 11, tagX: 36.5, tagY: 8.2, tagWidth: 10.5, barcodeX: 4, barcodeY: 16.5, barcodeWidth: 42, barcodeHeight: 4.5, barcodeValueY: 23.5, barcodeValueSize: 6 },
+    "38x25": { width: 38, height: 25, businessY: 3.6, businessSize: 8, nameY: 6.8, nameSize: 6.5, nameLength: 27, codeY: 9.5, codeSize: 5.5, priceY: 13.5, mrpSize: 6, offerSize: 9.5, tagX: 26, tagY: 8, tagWidth: 9, barcodeX: 3, barcodeY: 16, barcodeWidth: 32, barcodeHeight: 4.5, barcodeValueY: 23.5, barcodeValueSize: 5.5 }
+  };
+  let pendingLabelProducts = [];
+
   function barcodeDataUrl(text) {
     try {
       const canvas = document.createElement("canvas");
@@ -2164,91 +2208,100 @@
   // Draw one 50mm x 25mm label onto the given jsPDF doc.
   // Layout: business, product name + code, struck MRP + highlighted offer,
   // then a dedicated barcode area with its value below.
-  function drawLabel(doc, p, businessName) {
+  function drawLabel(doc, p, businessName, layout) {
     const offer = Number(p.price || 0);
     const mrp = Number(p.mrp || 0);
     const hasOffer = mrp > offer;
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.text(String(businessName || "").toUpperCase().slice(0, 30), 25, 3.8, { align: "center" });
+    doc.setFontSize(layout.businessSize);
+    doc.text(String(businessName || "").toUpperCase().slice(0, 30), layout.width / 2, layout.businessY, { align: "center" });
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
+    doc.setFontSize(layout.nameSize);
     const pname = String(p.name || "").toUpperCase();
-    doc.text(pname.length > 34 ? pname.slice(0, 34) : pname, 25, 7.2, { align: "center" });
+    doc.text(pname.length > layout.nameLength ? pname.slice(0, layout.nameLength) : pname, layout.width / 2, layout.nameY, { align: "center" });
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(6);
-    doc.text(String(p.sku), 3, 10.1);
+    doc.setFontSize(layout.codeSize);
+    doc.text(String(p.sku), 2, layout.codeY);
 
-    const priceY = 14;
+    const priceY = layout.priceY;
     if (hasOffer) {
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
+      doc.setFontSize(layout.mrpSize);
       const mrpText = `MRP: ${pdfMoney(mrp)}`;
-      doc.text(mrpText, 3, priceY);
+      doc.text(mrpText, 2, priceY);
       const w = doc.getTextWidth(mrpText);
       doc.setLineWidth(0.3);
-      doc.line(3, priceY - 1, 3 + w, priceY - 1); // strikethrough
+      doc.line(2, priceY - 1, 2 + w, priceY - 1); // strikethrough
     } else {
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
-      doc.text("PRICE", 3, priceY);
+      doc.setFontSize(layout.mrpSize);
+      doc.text("PRICE", 2, priceY);
     }
     doc.setFillColor(0, 0, 0);
-    doc.rect(36.5, 8.2, 10.5, 2.5, "F");
+    doc.rect(layout.tagX, layout.tagY, layout.tagWidth, 2.5, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(4.2);
-    doc.text("OUR PRICE", 46.2, 10, { align: "right" });
+    doc.text("OUR PRICE", layout.width - 1.8, layout.tagY + 1.8, { align: "right" });
     doc.setTextColor(0, 0, 0);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.text(pdfMoney(offer), 47, priceY, { align: "right" });
+    doc.setFontSize(layout.offerSize);
+    doc.text(pdfMoney(offer), layout.width - 1.8, priceY, { align: "right" });
 
     const img = barcodeDataUrl(p.barcode || p.sku);
     if (img) {
-      doc.addImage(img, "PNG", 4, 16.5, 42, 4.5);
+      doc.addImage(img, "PNG", layout.barcodeX, layout.barcodeY, layout.barcodeWidth, layout.barcodeHeight);
     }
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(6);
-    doc.text(String(p.barcode || p.sku), 25, 23.5, { align: "center" });
+    doc.setFontSize(layout.barcodeValueSize);
+    doc.text(String(p.barcode || p.sku), layout.width / 2, layout.barcodeValueY, { align: "center" });
   }
 
-  // 25mm x 50mm label: "Business Name - Product Name", code, price, barcode.
-  async function printProductLabel(p) {
-    if (!window.jspdf) {
-      showToast("PDF library not loaded");
-      return;
-    }
-    const businessName = await getBusinessName();
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: "mm", format: [50, 25], orientation: "landscape" });
-    drawLabel(doc, p, businessName);
-    openPdf(doc, `label-${p.sku}.pdf`);
+  function printProductLabel(p) {
+    openLabelPrintModal([p]);
   }
 
-  // Multi-label PDF (one label per page) for the selected products.
-  async function printLabelsForProducts(products) {
+  function printLabelsForProducts(products) {
     if (!products.length) {
       showToast("Select at least one item to print");
       return;
     }
+    openLabelPrintModal(products);
+  }
+
+  function openLabelPrintModal(products) {
+    pendingLabelProducts = products;
+    document.getElementById("label-print-modal").classList.add("show");
+    document.getElementById("label-print-copies").focus();
+  }
+
+  function closeLabelPrintModal() {
+    document.getElementById("label-print-modal").classList.remove("show");
+    pendingLabelProducts = [];
+  }
+
+  async function createPrintLabels(sizeKey, copies) {
     if (!window.jspdf) {
       showToast("PDF library not loaded");
       return;
     }
+    const layout = LABEL_SIZES[sizeKey] || LABEL_SIZES["50x25"];
+    const products = pendingLabelProducts;
     const businessName = await getBusinessName();
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: "mm", format: [50, 25], orientation: "landscape" });
-    products.forEach((p, i) => {
+    const doc = new jsPDF({ unit: "mm", format: [layout.width, layout.height], orientation: "landscape" });
+    const labels = products.flatMap((product) => Array.from({ length: copies }, () => product));
+    labels.forEach((p, i) => {
       if (i > 0) {
-        doc.addPage([50, 25], "landscape");
+        doc.addPage([layout.width, layout.height], "landscape");
       }
-      drawLabel(doc, p, businessName);
+      drawLabel(doc, p, businessName, layout);
     });
-    openPdf(doc, `labels-${products.length}.pdf`);
+    closeLabelPrintModal();
+    openPdf(doc, `labels-${labels.length}.pdf`);
   }
 
   // 4in x 6in bill with business + store details.
@@ -2318,8 +2371,11 @@
     doc.text("Subtotal", 2.9, y, { align: "right" });
     doc.text(sale.totals.subtotal.toFixed(2), right, y, { align: "right" });
     y += 0.16;
-    doc.text("GST", 2.9, y, { align: "right" });
-    doc.text(sale.totals.tax.toFixed(2), right, y, { align: "right" });
+    doc.text(gstComponentLabel("CGST", sale.totals), 2.9, y, { align: "right" });
+    doc.text(splitGst(sale.totals.tax).cgst.toFixed(2), right, y, { align: "right" });
+    y += 0.16;
+    doc.text(gstComponentLabel("SGST", sale.totals), 2.9, y, { align: "right" });
+    doc.text(splitGst(sale.totals.tax).sgst.toFixed(2), right, y, { align: "right" });
     y += 0.18;
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
@@ -2692,7 +2748,8 @@
             <h3 class="panel-title">Billing</h3>
             <div class="mono" style="font-size: 12px; display: grid; gap: 6px;">
               <div style="display:flex; justify-content:space-between;"><span>Subtotal</span><span>${money(t.subtotal)}</span></div>
-              <div style="display:flex; justify-content:space-between;"><span>GST</span><span>${money(t.tax)}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>${gstComponentLabel("CGST", t)}</span><span>${money(splitGst(t.tax).cgst)}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>${gstComponentLabel("SGST", t)}</span><span>${money(splitGst(t.tax).sgst)}</span></div>
             </div>
             <div style="margin: 10px 0; border-top: 1px dashed var(--color-border); padding-top: 10px; display:flex; justify-content:space-between;">
               <strong>Total Payable</strong><strong class="mono">${money(t.total)}</strong>
@@ -3562,6 +3619,10 @@
         closeStockModal();
         return;
       }
+      if (action === "close-label-print-modal") {
+        closeLabelPrintModal();
+        return;
+      }
       if (action === "print-label") {
         try {
           const p = JSON.parse(decodeURIComponent(actionBtn.dataset.product || "%7B%7D"));
@@ -3782,6 +3843,7 @@
     if (event.key === "Escape") {
       setNavOpen(false);
       closeStockModal();
+      closeLabelPrintModal();
       document.getElementById("auth-modal").classList.remove("show");
       closeScanner();
     }
@@ -3793,6 +3855,8 @@
 
   const authModal = document.getElementById("auth-modal");
   const stockModal = document.getElementById("stock-modal");
+  const labelPrintModal = document.getElementById("label-print-modal");
+  const labelPrintForm = document.getElementById("label-print-form");
   const authForm = document.getElementById("auth-form");
 
   document.getElementById("auth-toggle").addEventListener("click", async () => {
@@ -3869,6 +3933,19 @@
     if (event.target === stockModal) {
       closeStockModal();
     }
+  });
+
+  labelPrintModal.addEventListener("click", (event) => {
+    if (event.target === labelPrintModal) {
+      closeLabelPrintModal();
+    }
+  });
+
+  labelPrintForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const size = document.getElementById("label-print-size").value;
+    const copies = Math.min(100, Math.max(1, Math.floor(Number(document.getElementById("label-print-copies").value) || 1)));
+    createPrintLabels(size, copies);
   });
 
   authForm.addEventListener("submit", async (event) => {
