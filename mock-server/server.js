@@ -99,7 +99,16 @@ const mockState = {
     gstin: '33ABCDE1234F1Z5',
     pan: 'ABCDE1234F',
     invoice_prefix: 'AGS/26-27/'
-  }
+  },
+  membershipConfig: {
+    initialReward: 250,
+    claimPercent: 10,
+    minPurchase: 500
+  },
+  members: [
+    { id: 'MEM-1', name: 'Priya S', phone: '9876543210', rewardPoints: 120 },
+    { id: 'MEM-2', name: 'Rahul K', phone: '9876543211', rewardPoints: 340 }
+  ]
 };
 
 function sendJson(res, statusCode, data) {
@@ -413,6 +422,56 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === '/v1/memberships/config' && req.method === 'GET') {
+      sendJson(res, 200, mockState.membershipConfig);
+      return;
+    }
+
+    if (pathname === '/v1/memberships/config' && req.method === 'POST') {
+      const body = await parseBody(req);
+      mockState.membershipConfig = {
+        initialReward: Number(body.initialReward || 250),
+        claimPercent: Number(body.claimPercent || 10),
+        minPurchase: Number(body.minPurchase || 500)
+      };
+      sendJson(res, 200, mockState.membershipConfig);
+      return;
+    }
+
+    if (pathname === '/v1/memberships/customer/lookup' && req.method === 'GET') {
+      const phone = requestUrl.searchParams.get('phone');
+      const member = mockState.members.find(m => m.phone === phone);
+      if (member) {
+        sendJson(res, 200, { found: true, member });
+      } else {
+        sendJson(res, 200, { found: false });
+      }
+      return;
+    }
+
+    if (pathname === '/v1/memberships/customer/enroll' && req.method === 'POST') {
+      const body = await parseBody(req);
+      const existing = mockState.members.find(m => m.phone === body.phone);
+      if (existing) {
+        sendJson(res, 400, { error: 'already_member' });
+        return;
+      }
+      const newMember = {
+        id: `MEM-${mockState.members.length + 1}`,
+        name: body.name,
+        phone: body.phone,
+        rewardPoints: mockState.membershipConfig.initialReward
+      };
+      mockState.members.push(newMember);
+      sendJson(res, 201, newMember);
+      return;
+    }
+
+    if (pathname === '/v1/memberships/all' && req.method === 'GET') {
+      sendJson(res, 200, { items: mockState.members });
+      return;
+    }
+
     if (pathname === '/v1/storefront/placeholder' && req.method === 'GET') {
       const products = getStoreInventory('store-online');
       const pendingOrders = mockState.orders.filter((o) => o.channel === 'Online' && o.status !== 'Delivered').length;
@@ -430,19 +489,51 @@ const server = http.createServer(async (req, res) => {
       mockState.salesCounter += 1;
       const saleId = `SALE-${mockState.salesCounter}`;
       const saleStoreId = body.store_id || storeId;
+
+      // Membership logic
+      const phone = body.customer?.phone;
+      let member = mockState.members.find(m => m.phone === phone);
+      let membershipDiscountApplied = 0;
+
+      if (member) {
+        if (body.use_membership_discount && (body.totals?.total_amount || 0) >= mockState.membershipConfig.minPurchase) {
+          membershipDiscountApplied = Math.round(member.rewardPoints * (mockState.membershipConfig.claimPercent / 100));
+          member.rewardPoints -= membershipDiscountApplied;
+        }
+      }
+
+      const finalAmount = Math.round(((body.totals?.total_amount || 0) - membershipDiscountApplied) * 100) / 100;
+
       const order = {
         order_no: saleId,
         channel: body.channel === 'in_store' ? 'In-Store' : 'Online',
         customer_name: body.customer?.name || 'Walk-in',
-        total_amount: body.totals?.total_amount || 0,
+        total_amount: finalAmount,
         status: 'Paid',
         created_at: nowIso(),
-        store_id: saleStoreId
+        store_id: saleStoreId,
+        membership_discount: membershipDiscountApplied,
+        reward_balance: member ? member.rewardPoints : 0
       };
+
+      // Enrollment logic: After first bill, new members get Flat 250rs
+      if (!member && body.customer?.phone && body.customer?.name) {
+        member = {
+          id: `MEM-${mockState.members.length + 1}`,
+          name: body.customer.name,
+          phone: body.customer.phone,
+          rewardPoints: mockState.membershipConfig.initialReward
+        };
+        mockState.members.push(member);
+        order.reward_balance = member.rewardPoints;
+        order.is_new_membership = true;
+      }
+
       mockState.sales.unshift({
         sale_id: saleId,
         store_id: saleStoreId,
-        items: Array.isArray(body.items) ? body.items : []
+        items: Array.isArray(body.items) ? body.items : [],
+        membership_discount: membershipDiscountApplied
       });
 
       const inventory = getStoreInventory(saleStoreId);
@@ -470,7 +561,7 @@ const server = http.createServer(async (req, res) => {
         status: 'sent'
       });
 
-      sendJson(res, 201, { sale_id: saleId, status: 'accepted' });
+      sendJson(res, 201, { sale_id: saleId, status: 'accepted', membership_discount: membershipDiscountApplied, reward_balance: order.reward_balance });
       return;
     }
 
