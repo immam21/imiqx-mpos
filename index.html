@@ -2166,9 +2166,9 @@
   }
 
   const LABEL_SIZES = {
-    "25x20": { width: 25, height: 20, businessY: 2.7, businessSize: 5.5, nameY: 5, nameSize: 4.5, nameLength: 20, codeY: 6.8, codeSize: 4.2, priceY: 10.2, mrpSize: 4.8, offerSize: 7.4, tagX: 14, tagY: 7.3, tagWidth: 8.5, barcodeX: 2, barcodeY: 12, barcodeWidth: 21, barcodeHeight: 4.2, barcodeValueY: 18.2, barcodeValueSize: 4.5 },
-    "50x25": { width: 50, height: 25, businessY: 3.8, businessSize: 9, nameY: 7.2, nameSize: 7.5, nameLength: 34, codeY: 10.1, codeSize: 6, priceY: 14, mrpSize: 7, offerSize: 11, tagX: 36.5, tagY: 8.2, tagWidth: 10.5, barcodeX: 4, barcodeY: 16.5, barcodeWidth: 42, barcodeHeight: 4.5, barcodeValueY: 23.5, barcodeValueSize: 6 },
-    "38x25": { width: 38, height: 25, businessY: 3.6, businessSize: 8, nameY: 6.8, nameSize: 6.5, nameLength: 27, codeY: 9.5, codeSize: 5.5, priceY: 13.5, mrpSize: 6, offerSize: 9.5, tagX: 26, tagY: 8, tagWidth: 9, barcodeX: 3, barcodeY: 16, barcodeWidth: 32, barcodeHeight: 4.5, barcodeValueY: 23.5, barcodeValueSize: 5.5 }
+    "25x20": { width: 25, height: 20, businessY: 2.4, businessSize: 5, nameY: 4.3, nameSize: 4.2, nameLength: 20, codeY: 6.1, codeSize: 4, mrpY: 9, priceY: 11.4, mrpSize: 4.4, offerSize: 7, priceMaxWidth: 21, tagX: 14, tagY: 6.8, tagWidth: 8.5, barcodeX: 2, barcodeY: 12.6, barcodeWidth: 21, barcodeHeight: 3.6, barcodeValueY: 18.3, barcodeValueSize: 4.5 },
+    "50x25": { width: 50, height: 25, businessY: 3.2, businessSize: 8, nameY: 6.1, nameSize: 7, nameLength: 34, codeY: 8.7, codeSize: 5.5, mrpY: 12, priceY: 15.1, mrpSize: 6.5, offerSize: 10.5, priceMaxWidth: 46, tagX: 36.5, tagY: 9.2, tagWidth: 10.5, barcodeX: 4, barcodeY: 17, barcodeWidth: 42, barcodeHeight: 4.2, barcodeValueY: 23.6, barcodeValueSize: 6 },
+    "38x25": { width: 38, height: 25, businessY: 3, businessSize: 7, nameY: 5.8, nameSize: 6, nameLength: 27, codeY: 8.2, codeSize: 5, mrpY: 11.2, priceY: 14.4, mrpSize: 5.5, offerSize: 9, priceMaxWidth: 34, tagX: 26, tagY: 8.5, tagWidth: 9, barcodeX: 3, barcodeY: 16.5, barcodeWidth: 32, barcodeHeight: 4.2, barcodeValueY: 23.6, barcodeValueSize: 5.5 }
   };
   let pendingLabelProducts = [];
 
@@ -2180,6 +2180,16 @@
     } catch (_) {
       return "";
     }
+  }
+
+  function fitLabelFontSize(doc, text, preferredSize, maxWidth) {
+    let fontSize = preferredSize;
+    doc.setFontSize(fontSize);
+    while (fontSize > 4.5 && doc.getTextWidth(text) > maxWidth) {
+      fontSize -= 0.5;
+      doc.setFontSize(fontSize);
+    }
+    return fontSize;
   }
 
   function openPdf(doc, filename) {
@@ -2231,14 +2241,14 @@
       doc.setFont("helvetica", "normal");
       doc.setFontSize(layout.mrpSize);
       const mrpText = `MRP: ${pdfMoney(mrp)}`;
-      doc.text(mrpText, 2, priceY);
+      doc.text(mrpText, 2, layout.mrpY);
       const w = doc.getTextWidth(mrpText);
       doc.setLineWidth(0.3);
-      doc.line(2, priceY - 1, 2 + w, priceY - 1); // strikethrough
+      doc.line(2, layout.mrpY - 1, 2 + w, layout.mrpY - 1); // strikethrough
     } else {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(layout.mrpSize);
-      doc.text("PRICE", 2, priceY);
+      doc.text("PRICE", 2, layout.mrpY);
     }
     doc.setFillColor(0, 0, 0);
     doc.rect(layout.tagX, layout.tagY, layout.tagWidth, 2.5, "F");
@@ -2248,7 +2258,7 @@
     doc.text("OUR PRICE", layout.width - 1.8, layout.tagY + 1.8, { align: "right" });
     doc.setTextColor(0, 0, 0);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(layout.offerSize);
+    fitLabelFontSize(doc, pdfMoney(offer), layout.offerSize, layout.priceMaxWidth);
     doc.text(pdfMoney(offer), layout.width - 1.8, priceY, { align: "right" });
 
     const img = barcodeDataUrl(p.barcode || p.sku);
