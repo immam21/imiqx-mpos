@@ -979,6 +979,10 @@
     googleSheetsSync: "/api/integrations/google-sheets-sync",
     whatsappEvents: "/v1/integrations/whatsapp/events",
     whatsappReceipt: "/v1/integrations/whatsapp/send-receipt",
+    membershipConfig: "/v1/memberships/config",
+    membershipLookup: "/v1/memberships/customer/lookup",
+    membershipEnroll: "/v1/memberships/customer/enroll",
+    membershipAll: "/v1/memberships/all",
     settings: "/v1/business/setup",
     onlineStore: "/v1/storefront/placeholder",
     posSales: "/v1/pos/sales"
@@ -1409,6 +1413,12 @@
         ]);
       }
       if (tabId === "settings") appState.settings = await apiFetch(API_ENDPOINTS.settings);
+      if (tabId === "memberships") {
+        [appState.membershipConfig, appState.members] = await Promise.all([
+          apiFetch(API_ENDPOINTS.membershipConfig),
+          apiFetch(API_ENDPOINTS.membershipAll)
+        ]);
+      }
       if (tabId === "store") [appState.storefront, appState.onlineOrders] = await Promise.all([
         apiFetch(API_ENDPOINTS.onlineStore),
         apiFetch("/v1/online-orders")
@@ -1833,6 +1843,10 @@
     }
     const markPaid = POS_STATE.markPaid;
     const t = posTotals();
+    
+    // Get membership discount option
+    const useMembershipDiscount = document.getElementById('pos-use-membership-discount')?.checked || false;
+    
     PENDING_ORDER = {
       totals: t,
       customer: { name: custName, phone: custPhone, place: custPlace },
@@ -1853,7 +1867,8 @@
         line_total: Math.round(l.qty * l.unit_price * 100) / 100
       })),
       totals: { subtotal: t.subtotal, tax_amount: t.tax, discount_amount: 0, total_amount: t.total },
-      payments: markPaid ? [{ mode: POS_STATE.paymentMode, amount: t.total }] : []
+      payments: markPaid ? [{ mode: POS_STATE.paymentMode, amount: t.total }] : [],
+      use_membership_discount: useMembershipDiscount
       }
     };
     openOrderReview(PENDING_ORDER);
@@ -1902,7 +1917,9 @@
         customer: pending.customer,
         mode: pending.mode,
         paid: pending.paid,
-        at: new Date()
+        at: new Date(),
+        membership_discount: data.membership_discount,
+        reward_balance: data.reward_balance
       };
       POS_STATE.lastSale = sale;
       appState.loaded.inventory = false;
@@ -2145,8 +2162,8 @@
   }
 
   // Draw one 50mm x 25mm label onto the given jsPDF doc.
-  // Layout: business + product name (centered), code, struck MRP + highlighted
-  // offer price ("OUR PRICE"), centered barcode, code under barcode.
+  // Layout: business, product name + code, struck MRP + highlighted offer,
+  // then a dedicated barcode area with its value below.
   function drawLabel(doc, p, businessName) {
     const offer = Number(p.price || 0);
     const mrp = Number(p.mrp || 0);
@@ -2162,14 +2179,14 @@
     doc.text(pname.length > 34 ? pname.slice(0, 34) : pname, 25, 7.2, { align: "center" });
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
-    doc.text(String(p.sku), 3, 11);
+    doc.setFontSize(6);
+    doc.text(String(p.sku), 3, 10.1);
 
-    const priceY = 14.2;
+    const priceY = 14;
     if (hasOffer) {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7);
-      const mrpText = `MRP ${pdfMoney(mrp)}`;
+      const mrpText = `MRP: ${pdfMoney(mrp)}`;
       doc.text(mrpText, 3, priceY);
       const w = doc.getTextWidth(mrpText);
       doc.setLineWidth(0.3);
@@ -2179,20 +2196,24 @@
       doc.setFontSize(7);
       doc.text("PRICE", 3, priceY);
     }
+    doc.setFillColor(0, 0, 0);
+    doc.rect(36.5, 8.2, 10.5, 2.5, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(4.2);
+    doc.text("OUR PRICE", 46.2, 10, { align: "right" });
+    doc.setTextColor(0, 0, 0);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.text(pdfMoney(offer), 47, priceY, { align: "right" });
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(4.5);
-    doc.text("OUR PRICE", 47, priceY + 2.4, { align: "right" });
 
     const img = barcodeDataUrl(p.barcode || p.sku);
     if (img) {
-      doc.addImage(img, "PNG", 4, 16, 42, 5);
+      doc.addImage(img, "PNG", 4, 16.5, 42, 4.5);
     }
     doc.setFont("helvetica", "normal");
     doc.setFontSize(6);
-    doc.text(String(p.barcode || p.sku), 25, 24, { align: "center" });
+    doc.text(String(p.barcode || p.sku), 25, 23.5, { align: "center" });
   }
 
   // 25mm x 50mm label: "Business Name - Product Name", code, price, barcode.
@@ -2527,6 +2548,7 @@
     { id: "promotions", label: "Campaigns", short: "Promo" },
     { id: "reports", label: "Business Reports", short: "Reports" },
     { id: "integrations", label: "Connections", short: "Links" },
+    { id: "memberships", label: "Memberships", short: "Members" },
     { id: "settings", label: "Store Settings", short: "Setup" }
   ];
 
@@ -2542,6 +2564,7 @@
     promotions: ["Promotions", "Audience, offer, channel, schedule, approval workflow"],
     reports: ["Business Reports", "Sales, operations, tax, and end-to-end performance"],
     integrations: ["Integrations", "WhatsApp, Sheets, webhooks, and sync health"],
+    memberships: ["Memberships", "Manage loyalty programs and reward points"],
     settings: ["Settings", "Business profile, GST rules, RBAC, and session controls"]
   };
 
@@ -2682,6 +2705,9 @@
             ${mode === "upi" ? `<div style="text-align:center; margin-bottom:10px;"><div id="upi-qr" style="display:inline-block; padding:6px; background:#fff;"></div><div class="muted" style="font-size:11px; margin-top:4px;">Scan to pay ${money(t.total)} (placeholder QR)</div></div>` : ""}
             <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin-bottom:10px;">
               <input id="pos-mark-paid-check" type="checkbox" ${POS_STATE.markPaid ? "checked" : ""} /> Mark as paid
+            </label>
+            <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin-bottom:10px;">
+              <input id="pos-use-membership-discount" type="checkbox" /> Use Membership Discount
             </label>
             <div class="grid two-col">
               <button class="btn primary" type="button" data-action="pos-confirm-order">Confirm Order</button>
@@ -2943,6 +2969,45 @@
               <thead><tr><th>Campaign</th><th>Delivered</th><th>Clicked</th><th>Converted</th><th>Revenue</th></tr></thead>
               <tbody>
                 ${campaigns.map((c) => `<tr><td>${c.name}</td><td class="mono">${Number(c.delivered || 0).toLocaleString("en-IN")}</td><td class="mono">${Number(c.clicked || 0).toLocaleString("en-IN")}</td><td class="mono">${Number(c.converted || 0).toLocaleString("en-IN")}</td><td class="mono">${money(Number(c.revenue || 0))}</td></tr>`).join("") || `<tr><td colspan="5">No campaigns found.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      `;
+    },
+
+    memberships() {
+      const config = appState.membershipConfig || { initialReward: 250, claimPercent: 10, minPurchase: 500 };
+      const members = (appState.members && appState.members.items) || [];
+      return `
+        <div class="section card reveal">
+          <h3 class="panel-title">Membership Program Settings</h3>
+          <div class="grid three-col">
+            <label class="field"><span>Initial Reward (₹)</span><input id="membership-initial-reward" type="number" min="0" step="10" value="${config.initialReward}" /></label>
+            <label class="field"><span>Claim Percentage (%)</span><input id="membership-claim-percent" type="number" min="0" max="100" step="1" value="${config.claimPercent}" /></label>
+            <label class="field"><span>Min Purchase for Claim (₹)</span><input id="membership-min-purchase" type="number" min="0" step="10" value="${config.minPurchase}" /></label>
+          </div>
+          <div style="margin-top:10px;"><button class="btn primary" type="button" data-action="save-membership-config">Save Settings</button></div>
+        </div>
+
+        <div class="section card reveal">
+          <h3 class="panel-title">Member Lookup</h3>
+          <div class="grid two-col" style="align-items:end;">
+            <label class="field"><span>Customer Mobile</span><input id="member-lookup-phone" type="tel" inputmode="numeric" placeholder="10-digit mobile" /></label>
+            <button class="btn" type="button" data-action="lookup-member">Lookup Member</button>
+          </div>
+          <div id="member-lookup-result" style="margin-top:10px;">
+            <p class="muted" style="font-size:12px;">Search for a member by their mobile number to view their reward balance.</p>
+          </div>
+        </div>
+
+        <article class="card reveal">
+          <h3 class="panel-title">All Members</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Mobile</th><th>Reward Points (₹)</th></tr></thead>
+              <tbody id="members-list">
+                ${members.map(m => `<tr><td>${m.name}</td><td class="mono">${m.phone}</td><td class="mono">${money(m.rewardPoints)}</td></tr>`).join("") || `<tr><td colspan="3">No members yet.</td></tr>`}
               </tbody>
             </table>
           </div>
@@ -3364,6 +3429,85 @@
           applyTheme(darkMode.checked ? "dark" : "light");
           showToast(darkMode.checked ? "Dark mode enabled" : "Light mode enabled");
         });
+      }
+    }
+
+    if (tabId === "memberships") {
+      const lookupBtn = document.getElementById("lookup-member");
+      if (lookupBtn) {
+        lookupBtn.addEventListener("click", () => {
+          const phone = document.getElementById("member-lookup-phone").value.trim();
+          if (!phone) {
+            showToast("Please enter a mobile number");
+            return;
+          }
+          apiFetch(`${API_ENDPOINTS.membershipLookup}?phone=${encodeURIComponent(phone)}`)
+            .then(result => {
+              const resultDiv = document.getElementById("member-lookup-result");
+              if (result.found) {
+                resultDiv.innerHTML = `
+                  <div class="alert-row"><span>Name</span><span class="mono">${result.member.name}</span></div>
+                  <div class="alert-row"><span>Mobile</span><span class="mono">${result.member.phone}</span></div>
+                  <div class="alert-row"><span>Reward Points</span><span class="mono">${money(result.member.rewardPoints)}</span></div>
+                `;
+              } else {
+                resultDiv.innerHTML = `<p class="muted" style="font-size:12px; color:var(--color-danger);">No member found with this mobile number</p>`;
+              }
+            })
+            .catch(err => {
+              showToast("Lookup failed: " + (err.message || "error"));
+            });
+        });
+      }
+
+      const saveConfigBtn = document.getElementById("save-membership-config");
+      if (saveConfigBtn) {
+        saveConfigBtn.addEventListener("click", () => {
+          const initialReward = document.getElementById("membership-initial-reward").value;
+          const claimPercent = document.getElementById("membership-claim-percent").value;
+          const minPurchase = document.getElementById("membership-min-purchase").value;
+          
+          if (!initialReward || !claimPercent || !minPurchase) {
+            showToast("Please fill in all fields");
+            return;
+          }
+          
+          apiFetch(API_ENDPOINTS.membershipConfig, {
+            method: "POST",
+            body: JSON.stringify({
+              initialReward: parseInt(initialReward),
+              claimPercent: parseInt(claimPercent),
+              minPurchase: parseInt(minPurchase)
+            })
+          })
+          .then(result => {
+            showToast("Membership settings saved");
+            // Reload the page to show updated values
+            if (appState.activeTab === "memberships") {
+              setActive("memberships");
+            }
+          })
+          .catch(err => {
+            showToast("Failed to save settings: " + (err.message || "error"));
+          });
+        });
+      }
+
+      // Ensure members list is rendered
+      const membersList = document.getElementById("members-list");
+      if (membersList) {
+        const members = (appState.members && appState.members.items) || [];
+        if (members.length > 0) {
+          membersList.innerHTML = members.map(m => `
+            <tr>
+              <td>${m.name}</td>
+              <td class="mono">${m.phone}</td>
+              <td class="mono">${money(m.rewardPoints)}</td>
+            </tr>
+          `).join("");
+        } else {
+          membersList.innerHTML = `<tr><td colspan="3">No members yet.</td></tr>`;
+        }
       }
     }
   }
