@@ -897,6 +897,7 @@
           <option value="25x20">25 x 20 mm</option>
           <option value="50x25" selected>50 x 25 mm</option>
           <option value="38x25">38 x 25 mm</option>
+          <option value="50x25-2up">50 x 25 mm - 2 Ups</option>
         </select>
       </label>
       <label>Copies per product
@@ -2215,59 +2216,59 @@
     return (appState.receiptContext.business && appState.receiptContext.business.name) || "OneCounter";
   }
 
-  // Draw one 50mm x 25mm label onto the given jsPDF doc.
+  // Draw one label onto the given jsPDF doc, offset for multi-up print sheets.
   // Layout: business, product name + code, struck MRP + highlighted offer,
   // then a dedicated barcode area with its value below.
-  function drawLabel(doc, p, businessName, layout) {
+  function drawLabel(doc, p, businessName, layout, offsetX = 0) {
     const offer = Number(p.price || 0);
     const mrp = Number(p.mrp || 0);
     const hasOffer = mrp > offer;
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(layout.businessSize);
-    doc.text(String(businessName || "").toUpperCase().slice(0, 30), layout.width / 2, layout.businessY, { align: "center" });
+    doc.text(String(businessName || "").toUpperCase().slice(0, 30), offsetX + layout.width / 2, layout.businessY, { align: "center" });
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(layout.nameSize);
     const pname = String(p.name || "").toUpperCase();
-    doc.text(pname.length > layout.nameLength ? pname.slice(0, layout.nameLength) : pname, layout.width / 2, layout.nameY, { align: "center" });
+    doc.text(pname.length > layout.nameLength ? pname.slice(0, layout.nameLength) : pname, offsetX + layout.width / 2, layout.nameY, { align: "center" });
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(layout.codeSize);
-    doc.text(String(p.sku), 2, layout.codeY);
+    doc.text(String(p.sku), offsetX + 2, layout.codeY);
 
     const priceY = layout.priceY;
     if (hasOffer) {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(layout.mrpSize);
       const mrpText = `MRP: ${pdfMoney(mrp)}`;
-      doc.text(mrpText, 2, layout.mrpY);
+      doc.text(mrpText, offsetX + 2, layout.mrpY);
       const w = doc.getTextWidth(mrpText);
       doc.setLineWidth(0.3);
-      doc.line(2, layout.mrpY - 1, 2 + w, layout.mrpY - 1); // strikethrough
+      doc.line(offsetX + 2, layout.mrpY - 1, offsetX + 2 + w, layout.mrpY - 1); // strikethrough
     } else {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(layout.mrpSize);
-      doc.text("PRICE", 2, layout.mrpY);
+      doc.text("PRICE", offsetX + 2, layout.mrpY);
     }
     doc.setFillColor(0, 0, 0);
-    doc.rect(layout.tagX, layout.tagY, layout.tagWidth, 2.5, "F");
+    doc.rect(offsetX + layout.tagX, layout.tagY, layout.tagWidth, 2.5, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(4.2);
-    doc.text("OUR PRICE", layout.width - 1.8, layout.tagY + 1.8, { align: "right" });
+    doc.text("OUR PRICE", offsetX + layout.tagX + layout.tagWidth / 2, layout.tagY + 1.8, { align: "center" });
     doc.setTextColor(0, 0, 0);
     doc.setFont("helvetica", "bold");
     fitLabelFontSize(doc, pdfMoney(offer), layout.offerSize, layout.priceMaxWidth);
-    doc.text(pdfMoney(offer), layout.width - 1.8, priceY, { align: "right" });
+    doc.text(pdfMoney(offer), offsetX + layout.width - 1.8, priceY, { align: "right" });
 
     const img = barcodeDataUrl(p.barcode || p.sku);
     if (img) {
-      doc.addImage(img, "PNG", layout.barcodeX, layout.barcodeY, layout.barcodeWidth, layout.barcodeHeight);
+      doc.addImage(img, "PNG", offsetX + layout.barcodeX, layout.barcodeY, layout.barcodeWidth, layout.barcodeHeight);
     }
     doc.setFont("helvetica", "normal");
     doc.setFontSize(layout.barcodeValueSize);
-    doc.text(String(p.barcode || p.sku), layout.width / 2, layout.barcodeValueY, { align: "center" });
+    doc.text(String(p.barcode || p.sku), offsetX + layout.width / 2, layout.barcodeValueY, { align: "center" });
   }
 
   function printProductLabel(p) {
@@ -2298,17 +2299,20 @@
       showToast("PDF library not loaded");
       return;
     }
+    const isTwoUp = sizeKey === "50x25-2up";
     const layout = LABEL_SIZES[sizeKey] || LABEL_SIZES["50x25"];
+    const columns = isTwoUp ? 2 : 1;
+    const pageWidth = layout.width * columns;
     const products = pendingLabelProducts;
     const businessName = await getBusinessName();
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: "mm", format: [layout.width, layout.height], orientation: "landscape" });
+    const doc = new jsPDF({ unit: "mm", format: [pageWidth, layout.height], orientation: "landscape" });
     const labels = products.flatMap((product) => Array.from({ length: copies }, () => product));
     labels.forEach((p, i) => {
-      if (i > 0) {
-        doc.addPage([layout.width, layout.height], "landscape");
+      if (i > 0 && i % columns === 0) {
+        doc.addPage([pageWidth, layout.height], "landscape");
       }
-      drawLabel(doc, p, businessName, layout);
+      drawLabel(doc, p, businessName, layout, (i % columns) * layout.width);
     });
     closeLabelPrintModal();
     openPdf(doc, `labels-${labels.length}.pdf`);
