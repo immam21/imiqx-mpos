@@ -502,13 +502,17 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
-      const finalAmount = Math.round(((body.totals?.total_amount || 0) - membershipDiscountApplied) * 100) / 100;
+      const manualDiscountAmount = Number(body.manual_discount_amount || 0);
+      const preMembershipAmount = Math.round((((body.totals?.total_amount || 0) || Number(body.totals?.subtotal || 0) + Number(body.totals?.tax_amount || 0) - manualDiscountAmount)) * 100) / 100;
+      const finalAmount = Math.round(((preMembershipAmount - membershipDiscountApplied) * 100)) / 100;
 
       const order = {
         order_no: saleId,
         channel: body.channel === 'in_store' ? 'In-Store' : 'Online',
         customer_name: body.customer?.name || 'Walk-in',
         total_amount: finalAmount,
+        discount_amount: Math.round((manualDiscountAmount + membershipDiscountApplied) * 100) / 100,
+        manual_discount_amount: manualDiscountAmount,
         status: 'Paid',
         created_at: nowIso(),
         store_id: saleStoreId,

@@ -17,117 +17,117 @@
 <link href="https://fonts.googleapis.com/css2?family=Calistoga&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <style>
   :root {
-    --bg-a: #f8fbff;
-    --bg-b: #f5efe7;
-    --card: #ffffff;
-    --txt: #1f2937;
+    --bg-a: #eef3f8;
+    --bg-b: #f3efe7;
+    --card: #f6f7f8;
+    --txt: #0f172a;
     --muted: #6b7280;
-    --line: #dbe4ef;
+    --line: #d7dfeb;
     --brand: #1d4ed8;
     --brand-2: #f97316;
+    --soft-blue: #eaf2ff;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; min-height: 100%; }
   body {
     font-family: Inter, sans-serif;
     color: var(--txt);
-    background:
-      radial-gradient(900px 420px at 85% -10%, rgba(29, 78, 216, 0.18), transparent 70%),
-      radial-gradient(760px 300px at 5% 5%, rgba(249, 115, 22, 0.14), transparent 68%),
-      linear-gradient(180deg, var(--bg-a), var(--bg-b));
+    background: linear-gradient(180deg, var(--bg-a), var(--bg-b));
     display: grid;
     place-items: center;
-    padding: 20px;
+    padding: 24px;
   }
   .shell {
-    width: min(460px, 100%);
+    width: min(560px, 100%);
     border: 1px solid var(--line);
     border-radius: 18px;
-    background: linear-gradient(160deg, rgba(255,255,255,0.95), rgba(255,255,255,0.88));
-    box-shadow: 0 18px 42px rgba(30, 64, 175, 0.12), 0 6px 18px rgba(15, 23, 42, 0.08);
-    padding: 22px;
+    background: rgba(255,255,255,0.85);
+    backdrop-filter: blur(4px);
+    box-shadow: 0 18px 36px rgba(15, 23, 42, 0.08);
+    padding: 26px 24px 18px;
   }
   .brand {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin-bottom: 14px;
+    gap: 14px;
+    margin-bottom: 18px;
   }
   .logo {
-    width: 38px;
-    height: 38px;
-    border-radius: 11px;
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
     color: #fff;
     font-weight: 700;
     display: grid;
     place-items: center;
     background: linear-gradient(145deg, var(--brand), #3b82f6);
+    font-size: 20px;
+    line-height: 1;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.22);
   }
   h1 {
     margin: 0;
     font-family: Calistoga, serif;
-    font-size: 26px;
+    font-size: clamp(34px, 4vw, 41px);
     font-weight: 400;
+    letter-spacing: -0.05em;
+    line-height: 1;
   }
   .sub {
-    margin: 4px 0 0;
-    color: var(--muted);
-    font-size: 13px;
+    margin: 10px 0 0;
+    color: var(--txt);
+    font-size: 15px;
+    font-weight: 500;
   }
   form {
-    margin-top: 14px;
+    margin-top: 18px;
     display: grid;
-    gap: 10px;
+    gap: 18px;
   }
   label {
     display: grid;
-    gap: 5px;
+    gap: 8px;
     color: #334155;
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 600;
   }
   input, select {
     border: 1px solid var(--line);
     border-radius: 12px;
-    font-size: 14px;
-    padding: 11px 12px;
+    font-size: 18px;
+    padding: 14px 14px;
     outline: none;
-    background: #fff;
+    background: rgba(255,255,255,0.55);
+    color: var(--txt);
   }
   input:focus, select:focus {
     border-color: #93c5fd;
     box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.25);
   }
+  select {
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, #475569 50%), linear-gradient(135deg, #475569 50%, transparent 50%);
+    background-position: calc(100% - 18px) calc(50% - 2px), calc(100% - 12px) calc(50% - 2px);
+    background-size: 6px 6px, 6px 6px;
+    background-repeat: no-repeat;
+    padding-right: 36px;
+  }
   button {
     border: 0;
     border-radius: 12px;
-    padding: 11px 14px;
-    font-size: 14px;
+    padding: 15px 18px;
+    font-size: 18px;
     font-weight: 700;
     cursor: pointer;
     background: linear-gradient(180deg, #f97316, var(--brand-2));
     color: #111827;
-  }
-  .meta {
-    margin-top: 12px;
-    font-size: 12px;
-    color: var(--muted);
-    line-height: 1.5;
+    box-shadow: 0 8px 14px rgba(249, 115, 22, 0.18);
   }
   .error {
     min-height: 18px;
     color: #b91c1c;
     font-size: 12px;
     font-weight: 600;
-  }
-  .hint {
-    margin-top: 10px;
-    border: 1px dashed #cbd5e1;
-    border-radius: 10px;
-    background: #f8fafc;
-    padding: 10px;
-    font-size: 12px;
-    color: #334155;
   }
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 </style>
@@ -160,9 +160,9 @@
       <div class="error" id="error"></div>
     </form>
 
-    <details id="user-admin" style="margin-top:14px;">
-      <summary style="cursor:pointer; font-weight:600; font-size:13px; color:#334155;">Manage Users</summary>
-      <div style="margin-top:10px; display:grid; gap:10px;">
+    <details id="user-admin" style="margin-top:18px;">
+      <summary style="cursor:pointer; font-weight:600; font-size:14px; color:#334155; list-style:none;">Manage Users</summary>
+      <div style="margin-top:10px; display:grid; gap:10px; border:1px dashed #cbd5e1; border-radius:10px; padding:12px; background:rgba(248,250,252,0.8);">
         <div style="display:flex; gap:16px; font-size:13px; font-weight:600;">
           <label style="display:flex; flex-direction:row; align-items:center; gap:6px;"><input type="radio" name="user-mode" value="add" checked style="padding:0;" /> Add user</label>
           <label style="display:flex; flex-direction:row; align-items:center; gap:6px;"><input type="radio" name="user-mode" value="remove" style="padding:0;" /> Remove user</label>
@@ -200,12 +200,6 @@
         <div class="error" id="ua-status"></div>
       </div>
     </details>
-
-    <div class="hint">
-      Credentials are validated from the backend credential database.
-    </div>
-
-    <p class="meta" id="meta">Using mock auth unless Supabase URL + anon key are configured.</p>
   </section>
 
 <script src="config.js"></script>
@@ -275,9 +269,6 @@
       window.location.replace("index.html");
       return;
     }
-    document.getElementById("meta").textContent = isSupabaseConfigured()
-      ? "Using Supabase Auth login."
-      : "Using local mock credential database.";
   })();
 
   document.getElementById("login-form").addEventListener("submit", async (event) => {
