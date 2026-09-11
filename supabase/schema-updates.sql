@@ -89,3 +89,82 @@ create table if not exists google_sheets_sync_runs (
 );
 alter table google_sheets_sync_runs add column if not exists customer_rows integer not null default 0;
 create index if not exists idx_google_sheets_sync_runs_business_completed on google_sheets_sync_runs (business_id, completed_at desc);
+
+-- Store the GST basis and split on every sold item for tax audit and reporting.
+alter table order_items add column if not exists tax_percent numeric(5,2) not null default 0;
+alter table order_items add column if not exists taxable_amount numeric(12,2) not null default 0;
+alter table order_items add column if not exists cgst_amount numeric(12,2) not null default 0;
+alter table order_items add column if not exists sgst_amount numeric(12,2) not null default 0;
+alter table order_items add column if not exists price_includes_gst boolean not null default false;
+
+alter table orders add column if not exists cgst_amount numeric(12,2) not null default 0;
+alter table orders add column if not exists sgst_amount numeric(12,2) not null default 0;
+alter table orders add column if not exists prices_include_gst boolean not null default false;
+alter table orders add column if not exists wallet_balance_after numeric(12,2) not null default 0;
+
+-- Ennaval membership and wallet program. A mobile number identifies one member
+-- within a business; every wallet movement is retained in the ledger below.
+create table if not exists membership_program_settings (
+	business_id uuid primary key references businesses(id) on delete cascade,
+	minimum_eligible_purchase numeric(12,2) not null default 699,
+	regular_first_purchase_reward_percent numeric(5,2) not null default 10,
+	regular_repeat_purchase_reward_percent numeric(5,2) not null default 5,
+	exclusive_purchase_reward_percent numeric(5,2) not null default 10,
+	referral_reward_percent numeric(5,2) not null default 5,
+	referred_first_purchase_reward_percent numeric(5,2) not null default 10,
+	regular_wallet_redemption_percent numeric(5,2) not null default 20,
+	regular_wallet_redemption_max numeric(12,2) not null default 100,
+	exclusive_wallet_redemption_max numeric(12,2) not null default 150,
+	exclusive_membership_fee numeric(12,2) not null default 199,
+	exclusive_joining_credit numeric(12,2) not null default 250,
+	regular_wallet_expiry_months integer not null default 6,
+	exclusive_wallet_expiry_months integer not null default 12,
+	referral_gift_threshold integer not null default 10,
+	updated_at timestamptz not null default now()
+);
+
+create table if not exists membership_members (
+	id uuid primary key default gen_random_uuid(),
+	business_id uuid not null references businesses(id) on delete cascade,
+	customer_id uuid references customers(id) on delete set null,
+	phone text not null,
+	name text,
+	tier text not null default 'regular' check (tier in ('regular', 'exclusive')),
+	referral_code text not null,
+	referred_by_member_id uuid references membership_members(id) on delete set null,
+	wallet_balance numeric(12,2) not null default 0 check (wallet_balance >= 0),
+	wallet_expires_at timestamptz,
+	eligible_purchase_count integer not null default 0,
+	successful_referral_count integer not null default 0,
+	referral_gift_pending boolean not null default false,
+	joined_at timestamptz not null default now(),
+	last_purchase_at timestamptz,
+	unique (business_id, phone),
+	unique (business_id, referral_code)
+);
+
+create table if not exists membership_wallet_transactions (
+	id uuid primary key default gen_random_uuid(),
+	business_id uuid not null references businesses(id) on delete cascade,
+	member_id uuid not null references membership_members(id) on delete cascade,
+	order_id uuid references orders(id) on delete set null,
+	transaction_type text not null check (transaction_type in ('exclusive_joining_credit', 'purchase_reward', 'referral_reward', 'wallet_redemption', 'expiry_adjustment')),
+	amount numeric(12,2) not null,
+	balance_after numeric(12,2) not null,
+	created_at timestamptz not null default now()
+);
+
+create table if not exists membership_referrals (
+	id uuid primary key default gen_random_uuid(),
+	business_id uuid not null references businesses(id) on delete cascade,
+	referrer_member_id uuid not null references membership_members(id) on delete cascade,
+	referred_member_id uuid not null unique references membership_members(id) on delete cascade,
+	successful_order_id uuid references orders(id) on delete set null,
+	status text not null default 'pending' check (status in ('pending', 'successful')),
+	completed_at timestamptz,
+	created_at timestamptz not null default now()
+);
+
+create index if not exists idx_membership_members_business_phone on membership_members (business_id, phone);
+create index if not exists idx_membership_wallet_transactions_member on membership_wallet_transactions (member_id, created_at desc);
+create index if not exists idx_membership_referrals_referrer on membership_referrals (referrer_member_id, status);

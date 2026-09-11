@@ -888,6 +888,29 @@
   <div class="modal-card stock-modal-card" id="stock-modal-content"></div>
 </div>
 
+<div id="label-print-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="label-print-title">
+  <div class="modal-card">
+    <h2 id="label-print-title" class="modal-title">Print Barcode Labels</h2>
+    <form id="label-print-form" class="auth-form">
+      <label>Label size
+        <select id="label-print-size">
+          <option value="25x20">25 x 20 mm</option>
+          <option value="50x25" selected>50 x 25 mm</option>
+          <option value="38x25">38 x 25 mm</option>
+          <option value="50x25-2up">50 x 25 mm - 2 Ups</option>
+        </select>
+      </label>
+      <label>Copies per product
+        <input id="label-print-copies" type="number" min="1" max="100" step="1" value="1" inputmode="numeric" required />
+      </label>
+      <div class="modal-actions">
+        <button class="btn" type="button" data-action="close-label-print-modal">Cancel</button>
+        <button class="btn primary" type="submit">Create Print Labels</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div id="online-order-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="online-order-modal-title">
   <div class="modal-card stock-modal-card" id="online-order-modal-content"></div>
 </div>
@@ -981,6 +1004,8 @@
     whatsappReceipt: "/v1/integrations/whatsapp/send-receipt",
     membershipConfig: "/v1/memberships/config",
     membershipLookup: "/v1/memberships/customer/lookup",
+    membershipWalletHistory: "/v1/memberships/wallet-history",
+    membershipReferralLookup: "/v1/memberships/referral-lookup",
     membershipEnroll: "/v1/memberships/customer/enroll",
     membershipAll: "/v1/memberships/all",
     settings: "/v1/business/setup",
@@ -1002,10 +1027,12 @@
   };
 
   const POS_STATE = {
-    customer: { mode: "new", name: "", phone: "", place: "", existing: false, searched: false, lookupPhone: "" },
+    customer: { mode: "new", name: "", phone: "", place: "", referralCode: "", referrerName: "", existing: false, searched: false, lookupPhone: "" },
     cart: [],
     paymentMode: "cash",
     markPaid: true,
+    member: null,
+    useMembershipDiscount: false,
     catalog: [],
     lastSale: null
   };
@@ -1030,6 +1057,13 @@
 
   function isDarkTheme() {
     return localStorage.getItem("onecounter_theme") === "dark";
+  }
+
+  function pricesIncludeGst() {
+    if (appState.settings && typeof appState.settings.prices_include_gst === "boolean") {
+      return appState.settings.prices_include_gst;
+    }
+    return localStorage.getItem("onecounter_prices_include_gst") === "true";
   }
 
   const appState = {
@@ -1432,14 +1466,44 @@
   function posTotals() {
     let subtotal = 0;
     let tax = 0;
+    const inclusivePricing = pricesIncludeGst();
     POS_STATE.cart.forEach((l) => {
-      const lineSub = l.qty * l.unit_price;
-      subtotal += lineSub;
-      tax += (lineSub * (Number(l.tax_percent) || 0)) / 100;
+      const lineTotal = l.qty * l.unit_price;
+      const taxRate = Number(l.tax_percent) || 0;
+      const lineTax = inclusivePricing ? lineTotal * taxRate / (100 + taxRate) : lineTotal * taxRate / 100;
+      subtotal += inclusivePricing ? lineTotal - lineTax : lineTotal;
+      tax += lineTax;
     });
     subtotal = Math.round(subtotal * 100) / 100;
     tax = Math.round(tax * 100) / 100;
     return { subtotal, tax, total: Math.round((subtotal + tax) * 100) / 100 };
+  }
+
+  function splitGst(tax) {
+    const cgst = Math.round((Number(tax) || 0) * 50) / 100;
+    return { cgst, sgst: Math.round(((Number(tax) || 0) - cgst) * 100) / 100 };
+  }
+
+  function gstComponentLabel(component, totals) {
+    const subtotal = Number(totals && totals.subtotal) || 0;
+    const tax = Number(totals && totals.tax) || 0;
+    if (!(subtotal > 0) || !(tax > 0)) return component;
+    const rate = Math.round((tax / subtotal * 50) * 100) / 100;
+    return `${component} (${rate}%)`;
+  }
+
+  function posTaxBreakdown() {
+    const totals = posTotals();
+    const split = splitGst(totals.tax);
+    return { ...totals, ...split, prices_include_gst: pricesIncludeGst() };
+  }
+
+  function membershipDiscountPreview(totals) {
+    const member = POS_STATE.member;
+    if (!POS_STATE.useMembershipDiscount || !member || Number(totals.total || 0) <= 0) return 0;
+    if (member.wallet_expires_at && new Date(member.wallet_expires_at) <= new Date()) return 0;
+    const rate = Number(appState.membershipConfig?.regular_wallet_redemption_percent ?? 10);
+    return Math.round(Math.min(Number(member.wallet_balance || 0) * rate / 100, Number(totals.total || 0)) * 100) / 100;
   }
 
   function formatDateTime(value) {
@@ -1812,12 +1876,31 @@
         POS_STATE.customer.existing = false;
         showToast("No existing customer found for this mobile number");
       }
+      const membership = await apiFetch(`${API_ENDPOINTS.membershipLookup}?phone=${encodeURIComponent(phone)}`).catch(() => ({ found: false }));
+      POS_STATE.member = membership.found ? membership.member : null;
+      POS_STATE.useMembershipDiscount = false;
       POS_STATE.customer.searched = true;
       POS_STATE.customer.lookupPhone = phone;
       posRerender();
     } catch (_) {
       showToast("Customer search failed");
     }
+  }
+
+  async function posReferralLookup() {
+    const code = (POS_STATE.customer.referralCode || "").trim().toUpperCase();
+    POS_STATE.customer.referrerName = "";
+    if (!code) {
+      posRerender();
+      return;
+    }
+    try {
+      const result = await apiFetch(`${API_ENDPOINTS.membershipReferralLookup}?code=${encodeURIComponent(code)}`);
+      POS_STATE.customer.referrerName = result.found ? result.member.name : "Invalid referral code";
+    } catch (_) {
+      POS_STATE.customer.referrerName = "Unable to verify referral code";
+    }
+    posRerender();
   }
 
   function posConfirmOrder() {
@@ -1842,14 +1925,13 @@
       return;
     }
     const markPaid = POS_STATE.markPaid;
-    const t = posTotals();
-    
-    // Get membership discount option
-    const useMembershipDiscount = document.getElementById('pos-use-membership-discount')?.checked || false;
+    const t = posTaxBreakdown();
+    const membershipDiscount = membershipDiscountPreview(t);
+    const orderTotals = { ...t, discount: membershipDiscount, total: Math.round((t.total - membershipDiscount) * 100) / 100 };
     
     PENDING_ORDER = {
-      totals: t,
-      customer: { name: custName, phone: custPhone, place: custPlace },
+      totals: orderTotals,
+      customer: { name: custName, phone: custPhone, place: custPlace, referral_code: POS_STATE.customer.referralCode },
       items: POS_STATE.cart.map((l) => ({ ...l })),
       mode: POS_STATE.paymentMode,
       paid: markPaid,
@@ -1857,18 +1939,28 @@
       store_id: appState.currentStoreId,
       business_id: APP_CONFIG.businessId,
       channel: "in_store",
-      customer: { name: custName, phone: custPhone, place: custPlace },
+      customer: { name: custName, phone: custPhone, place: custPlace, referral_code: POS_STATE.customer.referralCode },
       status: markPaid ? "paid" : "created",
-      items: POS_STATE.cart.map((l) => ({
+      items: POS_STATE.cart.map((l) => {
+        const lineTotal = Math.round(l.qty * l.unit_price * 100) / 100;
+        const taxRate = Number(l.tax_percent) || 0;
+        const lineTax = t.prices_include_gst ? lineTotal * taxRate / (100 + taxRate) : lineTotal * taxRate / 100;
+        return {
         sku: l.sku,
         name: l.name,
         quantity: l.qty,
         unit_price: l.unit_price,
-        line_total: Math.round(l.qty * l.unit_price * 100) / 100
-      })),
-      totals: { subtotal: t.subtotal, tax_amount: t.tax, discount_amount: 0, total_amount: t.total },
+        line_total: lineTotal,
+        tax_percent: taxRate,
+        taxable_amount: Math.round((lineTotal - (t.prices_include_gst ? lineTax : 0)) * 100) / 100,
+        cgst_amount: Math.round(lineTax * 50) / 100,
+        sgst_amount: Math.round((lineTax - Math.round(lineTax * 50) / 100) * 100) / 100,
+        price_includes_gst: t.prices_include_gst
+        };
+      }),
+      totals: { subtotal: t.subtotal, tax_amount: t.tax, cgst_amount: t.cgst, sgst_amount: t.sgst, discount_amount: 0, total_amount: t.total, prices_include_gst: t.prices_include_gst },
       payments: markPaid ? [{ mode: POS_STATE.paymentMode, amount: t.total }] : [],
-      use_membership_discount: useMembershipDiscount
+      use_membership_discount: POS_STATE.useMembershipDiscount
       }
     };
     openOrderReview(PENDING_ORDER);
@@ -1888,7 +1980,8 @@
       <div class="table-wrap"><table><thead><tr><th>Item</th><th>Qty</th><th>Amount</th></tr></thead><tbody>${order.items.map((line) => `<tr><td>${escapeAttr(line.name)}</td><td class="mono">${line.qty}</td><td class="mono">${money(line.qty * line.unit_price)}</td></tr>`).join("")}</tbody></table></div>
       <div class="mono" style="padding:10px; background:#F8FAFC; border-radius:8px; display:grid; gap:6px;">
         <div style="display:flex; justify-content:space-between;"><span>Subtotal</span><span>${money(order.totals.subtotal)}</span></div>
-        <div style="display:flex; justify-content:space-between;"><span>GST</span><span>${money(order.totals.tax)}</span></div>
+        <div style="display:flex; justify-content:space-between;"><span>${gstComponentLabel("CGST", order.totals)}</span><span>${money(splitGst(order.totals.tax).cgst)}</span></div>
+        <div style="display:flex; justify-content:space-between;"><span>${gstComponentLabel("SGST", order.totals)}</span><span>${money(splitGst(order.totals.tax).sgst)}</span></div>
         <div style="display:flex; justify-content:space-between; font-weight:700;"><span>Total</span><span>${money(order.totals.total)}</span></div>
       </div>`;
     submit.textContent = order.paid ? "Confirm & Mark Paid" : "Confirm Order";
@@ -1913,7 +2006,11 @@
       const sale = {
         sale_id: data.sale_id,
         items: pending.items,
-        totals: pending.totals,
+        totals: {
+          ...pending.totals,
+          discount: Number(pending.totals.discount || 0) + Number(data.membership_discount || 0),
+          total: Number(data.total_amount ?? pending.totals.total)
+        },
         customer: pending.customer,
         mode: pending.mode,
         paid: pending.paid,
@@ -1977,7 +2074,8 @@
       `Customer: ${sale.customer.name}\n\n` +
       `${lines}\n\n` +
       `Subtotal: ${money(sale.totals.subtotal)}\n` +
-      `GST: ${money(sale.totals.tax)}\n` +
+      `${gstComponentLabel("CGST", sale.totals)}: ${money(splitGst(sale.totals.tax).cgst)}\n` +
+      `${gstComponentLabel("SGST", sale.totals)}: ${money(splitGst(sale.totals.tax).sgst)}\n` +
       `*Total: ${money(sale.totals.total)}*\n` +
       `${sale.paid === false ? "Payment: PENDING" : "Paid via " + String(sale.mode || "cash").toUpperCase()}\n\n` +
       `View your e-bill: ${ebillUrl}\n\n` +
@@ -2072,12 +2170,15 @@
       gstin: fieldVal("set-gstin"),
       pan: fieldVal("set-pan"),
       invoice_prefix: fieldVal("set-invoice-prefix"),
+      prices_include_gst: Boolean(document.getElementById("set-prices-include-gst")?.checked),
       store_name: fieldVal("set-store-name"),
       store_address: fieldVal("set-store-address"),
       store_city: fieldVal("set-store-city"),
       store_state: fieldVal("set-store-state"),
       store_pincode: fieldVal("set-store-pincode")
     };
+    localStorage.setItem("onecounter_prices_include_gst", String(payload.prices_include_gst));
+    appState.settings = { ...(appState.settings || {}), prices_include_gst: payload.prices_include_gst };
     try {
       await apiFetch(API_ENDPOINTS.settings, { method: "POST", body: JSON.stringify(payload) });
       showToast("Business details saved");
@@ -2128,6 +2229,13 @@
     return "Rs " + Number(n || 0).toFixed(2);
   }
 
+  const LABEL_SIZES = {
+    "25x20": { width: 25, height: 20, businessY: 2.4, businessSize: 5, nameY: 4.3, nameSize: 4.2, nameLength: 20, codeY: 6.1, codeSize: 4, mrpY: 9, priceY: 11.4, mrpSize: 4.4, offerSize: 7, priceMaxWidth: 21, tagX: 14, tagY: 6.8, tagWidth: 8.5, barcodeX: 2, barcodeY: 12.6, barcodeWidth: 21, barcodeHeight: 3.6, barcodeValueY: 18.3, barcodeValueSize: 4.5 },
+    "50x25": { width: 50, height: 25, businessY: 3.2, businessSize: 8, nameY: 6.1, nameSize: 7, nameLength: 34, codeY: 8.7, codeSize: 5.5, mrpY: 12, priceY: 15.1, mrpSize: 6.5, offerSize: 10.5, priceMaxWidth: 46, tagX: 36.5, tagY: 9.2, tagWidth: 10.5, barcodeX: 4, barcodeY: 17, barcodeWidth: 42, barcodeHeight: 4.2, barcodeValueY: 23.6, barcodeValueSize: 6 },
+    "38x25": { width: 38, height: 25, businessY: 3, businessSize: 7, nameY: 5.8, nameSize: 6, nameLength: 27, codeY: 8.2, codeSize: 5, mrpY: 11.2, priceY: 14.4, mrpSize: 5.5, offerSize: 9, priceMaxWidth: 34, tagX: 26, tagY: 8.5, tagWidth: 9, barcodeX: 3, barcodeY: 16.5, barcodeWidth: 32, barcodeHeight: 4.2, barcodeValueY: 23.6, barcodeValueSize: 5.5 }
+  };
+  let pendingLabelProducts = [];
+
   function barcodeDataUrl(text) {
     try {
       const canvas = document.createElement("canvas");
@@ -2136,6 +2244,16 @@
     } catch (_) {
       return "";
     }
+  }
+
+  function fitLabelFontSize(doc, text, preferredSize, maxWidth) {
+    let fontSize = preferredSize;
+    doc.setFontSize(fontSize);
+    while (fontSize > 4.5 && doc.getTextWidth(text) > maxWidth) {
+      fontSize -= 0.5;
+      doc.setFontSize(fontSize);
+    }
+    return fontSize;
   }
 
   function openPdf(doc, filename) {
@@ -2161,94 +2279,106 @@
     return (appState.receiptContext.business && appState.receiptContext.business.name) || "OneCounter";
   }
 
-  // Draw one 50mm x 25mm label onto the given jsPDF doc.
+  // Draw one label onto the given jsPDF doc, offset for multi-up print sheets.
   // Layout: business, product name + code, struck MRP + highlighted offer,
   // then a dedicated barcode area with its value below.
-  function drawLabel(doc, p, businessName) {
+  function drawLabel(doc, p, businessName, layout, offsetX = 0) {
     const offer = Number(p.price || 0);
     const mrp = Number(p.mrp || 0);
     const hasOffer = mrp > offer;
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.text(String(businessName || "").toUpperCase().slice(0, 30), 25, 3.8, { align: "center" });
+    doc.setFontSize(layout.businessSize);
+    doc.text(String(businessName || "").toUpperCase().slice(0, 30), offsetX + layout.width / 2, layout.businessY, { align: "center" });
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
+    doc.setFontSize(layout.nameSize);
     const pname = String(p.name || "").toUpperCase();
-    doc.text(pname.length > 34 ? pname.slice(0, 34) : pname, 25, 7.2, { align: "center" });
+    doc.text(pname.length > layout.nameLength ? pname.slice(0, layout.nameLength) : pname, offsetX + layout.width / 2, layout.nameY, { align: "center" });
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(6);
-    doc.text(String(p.sku), 3, 10.1);
+    doc.setFontSize(layout.codeSize);
+    doc.text(String(p.sku), offsetX + 2, layout.codeY);
 
-    const priceY = 14;
+    const priceY = layout.priceY;
     if (hasOffer) {
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
+      doc.setFontSize(layout.mrpSize);
       const mrpText = `MRP: ${pdfMoney(mrp)}`;
-      doc.text(mrpText, 3, priceY);
+      doc.text(mrpText, offsetX + 2, layout.mrpY);
       const w = doc.getTextWidth(mrpText);
       doc.setLineWidth(0.3);
-      doc.line(3, priceY - 1, 3 + w, priceY - 1); // strikethrough
+      doc.line(offsetX + 2, layout.mrpY - 1, offsetX + 2 + w, layout.mrpY - 1); // strikethrough
     } else {
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
-      doc.text("PRICE", 3, priceY);
+      doc.setFontSize(layout.mrpSize);
+      doc.text("PRICE", offsetX + 2, layout.mrpY);
     }
     doc.setFillColor(0, 0, 0);
-    doc.rect(36.5, 8.2, 10.5, 2.5, "F");
+    doc.rect(offsetX + layout.tagX, layout.tagY, layout.tagWidth, 2.5, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(4.2);
-    doc.text("OUR PRICE", 46.2, 10, { align: "right" });
+    doc.text("OUR PRICE", offsetX + layout.tagX + layout.tagWidth / 2, layout.tagY + 1.8, { align: "center" });
     doc.setTextColor(0, 0, 0);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.text(pdfMoney(offer), 47, priceY, { align: "right" });
+    fitLabelFontSize(doc, pdfMoney(offer), layout.offerSize, layout.priceMaxWidth);
+    doc.text(pdfMoney(offer), offsetX + layout.width - 1.8, priceY, { align: "right" });
 
     const img = barcodeDataUrl(p.barcode || p.sku);
     if (img) {
-      doc.addImage(img, "PNG", 4, 16.5, 42, 4.5);
+      doc.addImage(img, "PNG", offsetX + layout.barcodeX, layout.barcodeY, layout.barcodeWidth, layout.barcodeHeight);
     }
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(6);
-    doc.text(String(p.barcode || p.sku), 25, 23.5, { align: "center" });
+    doc.setFontSize(layout.barcodeValueSize);
+    doc.text(String(p.barcode || p.sku), offsetX + layout.width / 2, layout.barcodeValueY, { align: "center" });
   }
 
-  // 25mm x 50mm label: "Business Name - Product Name", code, price, barcode.
-  async function printProductLabel(p) {
-    if (!window.jspdf) {
-      showToast("PDF library not loaded");
-      return;
-    }
-    const businessName = await getBusinessName();
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: "mm", format: [50, 25], orientation: "landscape" });
-    drawLabel(doc, p, businessName);
-    openPdf(doc, `label-${p.sku}.pdf`);
+  function printProductLabel(p) {
+    openLabelPrintModal([p]);
   }
 
-  // Multi-label PDF (one label per page) for the selected products.
-  async function printLabelsForProducts(products) {
+  function printLabelsForProducts(products) {
     if (!products.length) {
       showToast("Select at least one item to print");
       return;
     }
+    openLabelPrintModal(products);
+  }
+
+  function openLabelPrintModal(products) {
+    pendingLabelProducts = products;
+    document.getElementById("label-print-modal").classList.add("show");
+    document.getElementById("label-print-copies").focus();
+  }
+
+  function closeLabelPrintModal() {
+    document.getElementById("label-print-modal").classList.remove("show");
+    pendingLabelProducts = [];
+  }
+
+  async function createPrintLabels(sizeKey, copies) {
     if (!window.jspdf) {
       showToast("PDF library not loaded");
       return;
     }
+    const isTwoUp = sizeKey === "50x25-2up";
+    const layout = LABEL_SIZES[sizeKey] || LABEL_SIZES["50x25"];
+    const columns = isTwoUp ? 2 : 1;
+    const pageWidth = layout.width * columns;
+    const products = pendingLabelProducts;
     const businessName = await getBusinessName();
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: "mm", format: [50, 25], orientation: "landscape" });
-    products.forEach((p, i) => {
-      if (i > 0) {
-        doc.addPage([50, 25], "landscape");
+    const doc = new jsPDF({ unit: "mm", format: [pageWidth, layout.height], orientation: "landscape" });
+    const labels = products.flatMap((product) => Array.from({ length: copies }, () => product));
+    labels.forEach((p, i) => {
+      if (i > 0 && i % columns === 0) {
+        doc.addPage([pageWidth, layout.height], "landscape");
       }
-      drawLabel(doc, p, businessName);
+      drawLabel(doc, p, businessName, layout, (i % columns) * layout.width);
     });
-    openPdf(doc, `labels-${products.length}.pdf`);
+    closeLabelPrintModal();
+    openPdf(doc, `labels-${labels.length}.pdf`);
   }
 
   // 4in x 6in bill with business + store details.
@@ -2318,14 +2448,24 @@
     doc.text("Subtotal", 2.9, y, { align: "right" });
     doc.text(sale.totals.subtotal.toFixed(2), right, y, { align: "right" });
     y += 0.16;
-    doc.text("GST", 2.9, y, { align: "right" });
-    doc.text(sale.totals.tax.toFixed(2), right, y, { align: "right" });
+    doc.text(gstComponentLabel("CGST", sale.totals), 2.9, y, { align: "right" });
+    doc.text(splitGst(sale.totals.tax).cgst.toFixed(2), right, y, { align: "right" });
+    y += 0.16;
+    doc.text(gstComponentLabel("SGST", sale.totals), 2.9, y, { align: "right" });
+    doc.text(splitGst(sale.totals.tax).sgst.toFixed(2), right, y, { align: "right" });
     y += 0.18;
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
     doc.text("TOTAL", 2.9, y, { align: "right" });
     doc.text(pdfMoney(sale.totals.total), right, y, { align: "right" });
     y += 0.22;
+    if (sale.reward_balance !== undefined) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.text("Reward wallet balance", 2.9, y, { align: "right" });
+      doc.text(pdfMoney(sale.reward_balance), right, y, { align: "right" });
+      y += 0.18;
+    }
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.text(`Paid via ${String(sale.mode || "cash").toUpperCase()}`, left, y);
@@ -2635,6 +2775,8 @@
 
     pos() {
       const t = posTotals();
+      const membershipDiscount = membershipDiscountPreview(t);
+      const payableTotal = Math.round((t.total - membershipDiscount) * 100) / 100;
       const cust = POS_STATE.customer;
       const mode = POS_STATE.paymentMode;
       const isNewCustomer = cust.mode !== "existing";
@@ -2663,6 +2805,7 @@
             <label class="field" style="grid-column: span 2;"><span aria-hidden="true">Customer Name *</span><input id="pos-cust-name" type="text" required placeholder="Name" value="${cust.name}" ${!isNewCustomer ? "readonly" : ""} /></label>
             <label class="field" style="grid-column: span 2;"><span aria-hidden="true">Place *</span><input id="pos-cust-place" type="text" required placeholder="City / locality" value="${cust.place}" ${!isNewCustomer ? "readonly" : ""} /></label>
           </div>
+          ${isNewCustomer ? `<div class="grid four-col" style="margin-top:10px; align-items:end;"><label class="field" style="grid-column:span 2;"><span>Referral code</span><input id="pos-referral-code" type="text" maxlength="5" autocomplete="off" placeholder="5-character code" value="${cust.referralCode}" /></label><div class="muted" style="font-size:12px; grid-column:span 2;">${cust.referrerName ? `Referred by: ${cust.referrerName}` : ""}</div></div>` : ""}
         </div>
 
         <div class="section card reveal">
@@ -2692,22 +2835,24 @@
             <h3 class="panel-title">Billing</h3>
             <div class="mono" style="font-size: 12px; display: grid; gap: 6px;">
               <div style="display:flex; justify-content:space-between;"><span>Subtotal</span><span>${money(t.subtotal)}</span></div>
-              <div style="display:flex; justify-content:space-between;"><span>GST</span><span>${money(t.tax)}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>${gstComponentLabel("CGST", t)}</span><span>${money(splitGst(t.tax).cgst)}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>${gstComponentLabel("SGST", t)}</span><span>${money(splitGst(t.tax).sgst)}</span></div>
+              ${membershipDiscount > 0 ? `<div style="display:flex; justify-content:space-between; color:var(--color-success);"><span>Wallet discount</span><span>-${money(membershipDiscount)}</span></div>` : ""}
             </div>
             <div style="margin: 10px 0; border-top: 1px dashed var(--color-border); padding-top: 10px; display:flex; justify-content:space-between;">
-              <strong>Total Payable</strong><strong class="mono">${money(t.total)}</strong>
+              <strong>Total Payable</strong><strong class="mono">${money(payableTotal)}</strong>
             </div>
             <fieldset style="border:0; padding:0; margin:0 0 10px; display:flex; gap:16px; flex-wrap:wrap;">
               <legend class="sr-only">Payment method</legend>
               <label style="display:flex; align-items:center; gap:7px; font-size:13px; font-weight:600;"><input type="radio" name="pos-payment-mode" value="cash" ${mode === "cash" ? "checked" : ""} /> Cash</label>
               <label style="display:flex; align-items:center; gap:7px; font-size:13px; font-weight:600;"><input type="radio" name="pos-payment-mode" value="upi" ${mode === "upi" ? "checked" : ""} /> UPI</label>
             </fieldset>
-            ${mode === "upi" ? `<div style="text-align:center; margin-bottom:10px;"><div id="upi-qr" style="display:inline-block; padding:6px; background:#fff;"></div><div class="muted" style="font-size:11px; margin-top:4px;">Scan to pay ${money(t.total)} (placeholder QR)</div></div>` : ""}
+            ${mode === "upi" ? `<div style="text-align:center; margin-bottom:10px;"><div id="upi-qr" style="display:inline-block; padding:6px; background:#fff;"></div><div class="muted" style="font-size:11px; margin-top:4px;">Scan to pay ${money(payableTotal)} (placeholder QR)</div></div>` : ""}
             <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin-bottom:10px;">
               <input id="pos-mark-paid-check" type="checkbox" ${POS_STATE.markPaid ? "checked" : ""} /> Mark as paid
             </label>
             <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin-bottom:10px;">
-              <input id="pos-use-membership-discount" type="checkbox" /> Use Membership Discount
+              <input id="pos-use-membership-discount" type="checkbox" ${POS_STATE.useMembershipDiscount ? "checked" : ""} ${POS_STATE.member ? "" : "disabled"} /> Use Membership Discount${POS_STATE.member ? ` (${POS_STATE.member.tier} wallet: ${money(POS_STATE.member.wallet_balance)})` : ""}
             </label>
             <div class="grid two-col">
               <button class="btn primary" type="button" data-action="pos-confirm-order">Confirm Order</button>
@@ -2977,15 +3122,17 @@
     },
 
     memberships() {
-      const config = appState.membershipConfig || { initialReward: 250, claimPercent: 10, minPurchase: 500 };
+      const config = appState.membershipConfig || { regular_first_purchase_reward_percent: 10, regular_repeat_purchase_reward_percent: 5, referral_reward_percent: 5, regular_wallet_redemption_percent: 10, regular_wallet_expiry_months: 6 };
       const members = (appState.members && appState.members.items) || [];
       return `
         <div class="section card reveal">
           <h3 class="panel-title">Membership Program Settings</h3>
           <div class="grid three-col">
-            <label class="field"><span>Initial Reward (₹)</span><input id="membership-initial-reward" type="number" min="0" step="10" value="${config.initialReward}" /></label>
-            <label class="field"><span>Claim Percentage (%)</span><input id="membership-claim-percent" type="number" min="0" max="100" step="1" value="${config.claimPercent}" /></label>
-            <label class="field"><span>Min Purchase for Claim (₹)</span><input id="membership-min-purchase" type="number" min="0" step="10" value="${config.minPurchase}" /></label>
+            <label class="field"><span>First purchase credit (%)</span><input id="membership-first-reward" type="number" min="0" max="100" step="0.01" value="${config.regular_first_purchase_reward_percent}" /></label>
+            <label class="field"><span>Later purchase credit (%)</span><input id="membership-repeat-reward" type="number" min="0" max="100" step="0.01" value="${config.regular_repeat_purchase_reward_percent}" /></label>
+            <label class="field"><span>Referral credit (%)</span><input id="membership-referral-reward" type="number" min="0" max="100" step="0.01" value="${config.referral_reward_percent}" /></label>
+            <label class="field"><span>Wallet redemption (%)</span><input id="membership-redemption-percent" type="number" min="0" max="100" step="0.01" value="${config.regular_wallet_redemption_percent}" /></label>
+            <label class="field"><span>Wallet inactivity expiry (months)</span><input id="membership-expiry-months" type="number" min="1" max="60" step="1" value="${config.regular_wallet_expiry_months}" /></label>
           </div>
           <div style="margin-top:10px;"><button class="btn primary" type="button" data-action="save-membership-config">Save Settings</button></div>
         </div>
@@ -2994,7 +3141,7 @@
           <h3 class="panel-title">Member Lookup</h3>
           <div class="grid two-col" style="align-items:end;">
             <label class="field"><span>Customer Mobile</span><input id="member-lookup-phone" type="tel" inputmode="numeric" placeholder="10-digit mobile" /></label>
-            <button class="btn" type="button" data-action="lookup-member">Lookup Member</button>
+            <button id="lookup-member" class="btn" type="button" data-action="lookup-member">Lookup Member</button>
           </div>
           <div id="member-lookup-result" style="margin-top:10px;">
             <p class="muted" style="font-size:12px;">Search for a member by their mobile number to view their reward balance.</p>
@@ -3005,9 +3152,9 @@
           <h3 class="panel-title">All Members</h3>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Name</th><th>Mobile</th><th>Reward Points (₹)</th></tr></thead>
+              <thead><tr><th>Name</th><th>Mobile</th><th>Tier</th><th>Wallet (₹)</th><th>Referral Code</th></tr></thead>
               <tbody id="members-list">
-                ${members.map(m => `<tr><td>${m.name}</td><td class="mono">${m.phone}</td><td class="mono">${money(m.rewardPoints)}</td></tr>`).join("") || `<tr><td colspan="3">No members yet.</td></tr>`}
+                ${members.map(m => `<tr><td>${m.name}</td><td class="mono">${m.phone}</td><td>${m.tier}</td><td class="mono">${money(m.wallet_balance)}</td><td class="mono">${m.referral_code}</td></tr>`).join("") || `<tr><td colspan="5">No members yet.</td></tr>`}
               </tbody>
             </table>
           </div>
@@ -3223,6 +3370,7 @@
               <label class="field"><span aria-hidden="true">GSTIN</span><input id="set-gstin" type="text" placeholder="GSTIN" value="${(s.gstin || "").replace(/"/g, "&quot;")}" /></label>
               <label class="field"><span aria-hidden="true">PAN</span><input id="set-pan" type="text" placeholder="PAN" value="${(s.pan || "").replace(/"/g, "&quot;")}" /></label>
               <label class="field"><span aria-hidden="true">Invoice Prefix</span><input id="set-invoice-prefix" type="text" placeholder="e.g. INV/" value="${(s.invoice_prefix || "").replace(/"/g, "&quot;")}" /></label>
+              <label style="display:flex; align-items:center; justify-content:space-between; gap:16px; font-size:13px; font-weight:600;"><span>Product prices include GST</span><input id="set-prices-include-gst" type="checkbox" role="switch" ${pricesIncludeGst() ? "checked" : ""} /></label>
             </div>
           </article>
 
@@ -3448,8 +3596,27 @@
                 resultDiv.innerHTML = `
                   <div class="alert-row"><span>Name</span><span class="mono">${result.member.name}</span></div>
                   <div class="alert-row"><span>Mobile</span><span class="mono">${result.member.phone}</span></div>
-                  <div class="alert-row"><span>Reward Points</span><span class="mono">${money(result.member.rewardPoints)}</span></div>
+                  <div class="alert-row"><span>Membership</span><span class="mono">${result.member.tier}</span></div>
+                  <div class="alert-row"><span>Wallet balance</span><span class="mono">${money(result.member.wallet_balance)}</span></div>
+                  <div class="alert-row"><span>Referral code</span><span class="mono">${result.member.referral_code}</span></div>
+                  <div id="member-wallet-history" style="margin-top:14px;"><p class="muted" style="font-size:12px;">Loading wallet history...</p></div>
                 `;
+                apiFetch(`${API_ENDPOINTS.membershipWalletHistory}?member_id=${encodeURIComponent(result.member.id)}`)
+                  .then((history) => {
+                    const historyDiv = document.getElementById("member-wallet-history");
+                    if (!historyDiv) return;
+                    const rows = history.items || [];
+                    historyDiv.innerHTML = `
+                      <h4 class="panel-title" style="font-size:13px; margin-bottom:8px;">Credit Wallet History</h4>
+                      <div class="table-wrap"><table>
+                        <thead><tr><th>Date</th><th>Activity</th><th>Credit / Debit (₹)</th><th>Balance (₹)</th></tr></thead>
+                        <tbody>${rows.map((entry) => `<tr><td class="mono">${new Date(entry.created_at).toLocaleString("en-IN")}</td><td>${String(entry.transaction_type || "").replaceAll("_", " ")}</td><td class="mono">${money(entry.amount)}</td><td class="mono">${money(entry.balance_after)}</td></tr>`).join("") || `<tr><td colspan="4">No wallet activity yet.</td></tr>`}</tbody>
+                      </table></div>`;
+                  })
+                  .catch(() => {
+                    const historyDiv = document.getElementById("member-wallet-history");
+                    if (historyDiv) historyDiv.innerHTML = `<p class="muted" style="font-size:12px;">Wallet history could not be loaded.</p>`;
+                  });
               } else {
                 resultDiv.innerHTML = `<p class="muted" style="font-size:12px; color:var(--color-danger);">No member found with this mobile number</p>`;
               }
@@ -3462,34 +3629,26 @@
 
       const saveConfigBtn = document.getElementById("save-membership-config");
       if (saveConfigBtn) {
-        saveConfigBtn.addEventListener("click", () => {
-          const initialReward = document.getElementById("membership-initial-reward").value;
-          const claimPercent = document.getElementById("membership-claim-percent").value;
-          const minPurchase = document.getElementById("membership-min-purchase").value;
-          
-          if (!initialReward || !claimPercent || !minPurchase) {
-            showToast("Please fill in all fields");
+        saveConfigBtn.addEventListener("click", async () => {
+          const fields = {
+            regular_first_purchase_reward_percent: "membership-first-reward",
+            regular_repeat_purchase_reward_percent: "membership-repeat-reward",
+            referral_reward_percent: "membership-referral-reward",
+            regular_wallet_redemption_percent: "membership-redemption-percent",
+            regular_wallet_expiry_months: "membership-expiry-months"
+          };
+          const payload = Object.fromEntries(Object.entries(fields).map(([key, id]) => [key, Number(document.getElementById(id).value)]));
+          if (Object.values(payload).some((value) => !Number.isFinite(value) || value < 0) || payload.regular_wallet_expiry_months < 1) {
+            showToast("Enter valid membership settings");
             return;
           }
-          
-          apiFetch(API_ENDPOINTS.membershipConfig, {
-            method: "POST",
-            body: JSON.stringify({
-              initialReward: parseInt(initialReward),
-              claimPercent: parseInt(claimPercent),
-              minPurchase: parseInt(minPurchase)
-            })
-          })
-          .then(result => {
+          try {
+            appState.membershipConfig = await apiFetch(API_ENDPOINTS.membershipConfig, { method: "POST", body: JSON.stringify(payload) });
             showToast("Membership settings saved");
-            // Reload the page to show updated values
-            if (appState.activeTab === "memberships") {
-              setActive("memberships");
-            }
-          })
-          .catch(err => {
+            setActive("memberships");
+          } catch (err) {
             showToast("Failed to save settings: " + (err.message || "error"));
-          });
+          }
         });
       }
 
@@ -3502,11 +3661,13 @@
             <tr>
               <td>${m.name}</td>
               <td class="mono">${m.phone}</td>
-              <td class="mono">${money(m.rewardPoints)}</td>
+              <td>${m.tier}</td>
+              <td class="mono">${money(m.wallet_balance)}</td>
+              <td class="mono">${m.referral_code}</td>
             </tr>
           `).join("");
         } else {
-          membersList.innerHTML = `<tr><td colspan="3">No members yet.</td></tr>`;
+          membersList.innerHTML = `<tr><td colspan="5">No members yet.</td></tr>`;
         }
       }
     }
@@ -3560,6 +3721,10 @@
       }
       if (action === "close-stock-modal") {
         closeStockModal();
+        return;
+      }
+      if (action === "close-label-print-modal") {
+        closeLabelPrintModal();
         return;
       }
       if (action === "print-label") {
@@ -3739,12 +3904,21 @@
       POS_STATE.customer.phone = event.target.value;
       POS_STATE.customer.searched = false;
       POS_STATE.customer.existing = false;
+      POS_STATE.member = null;
+      POS_STATE.useMembershipDiscount = false;
+      POS_STATE.customer.referralCode = "";
+      POS_STATE.customer.referrerName = "";
       const digits = event.target.value.replace(/\D/g, "").slice(-10);
       if (POS_STATE.customer.mode === "existing" && digits.length === 10 && POS_STATE.customer.lookupPhone !== event.target.value) {
         posCustomerSearch();
       }
     } else if (event.target.id === "pos-cust-place") {
       POS_STATE.customer.place = event.target.value;
+    } else if (event.target.id === "pos-referral-code") {
+      POS_STATE.customer.referralCode = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5);
+      if (POS_STATE.customer.referralCode.length === 5) {
+        posReferralLookup();
+      }
     }
   });
 
@@ -3757,6 +3931,9 @@
       });
     } else if (event.target.id === "pos-mark-paid-check") {
       POS_STATE.markPaid = event.target.checked;
+    } else if (event.target.id === "pos-use-membership-discount") {
+      POS_STATE.useMembershipDiscount = event.target.checked;
+      posRerender();
     } else if (event.target.name === "pos-payment-mode") {
       posSetPayment(event.target.value);
     } else if (event.target.name === "pos-customer-mode") {
@@ -3765,6 +3942,10 @@
       POS_STATE.customer.searched = false;
       POS_STATE.customer.existing = false;
       POS_STATE.customer.lookupPhone = "";
+      POS_STATE.customer.referralCode = "";
+      POS_STATE.customer.referrerName = "";
+      POS_STATE.member = null;
+      POS_STATE.useMembershipDiscount = false;
       if (isNewCustomer) {
         POS_STATE.customer.name = "";
         POS_STATE.customer.place = "";
@@ -3782,6 +3963,7 @@
     if (event.key === "Escape") {
       setNavOpen(false);
       closeStockModal();
+      closeLabelPrintModal();
       document.getElementById("auth-modal").classList.remove("show");
       closeScanner();
     }
@@ -3793,6 +3975,8 @@
 
   const authModal = document.getElementById("auth-modal");
   const stockModal = document.getElementById("stock-modal");
+  const labelPrintModal = document.getElementById("label-print-modal");
+  const labelPrintForm = document.getElementById("label-print-form");
   const authForm = document.getElementById("auth-form");
 
   document.getElementById("auth-toggle").addEventListener("click", async () => {
@@ -3869,6 +4053,19 @@
     if (event.target === stockModal) {
       closeStockModal();
     }
+  });
+
+  labelPrintModal.addEventListener("click", (event) => {
+    if (event.target === labelPrintModal) {
+      closeLabelPrintModal();
+    }
+  });
+
+  labelPrintForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const size = document.getElementById("label-print-size").value;
+    const copies = Math.min(100, Math.max(1, Math.floor(Number(document.getElementById("label-print-copies").value) || 1)));
+    createPrintLabels(size, copies);
   });
 
   authForm.addEventListener("submit", async (event) => {

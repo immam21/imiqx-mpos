@@ -61,6 +61,13 @@
   const API_BASE = window.__ONECOUNTER_API_BASE_URL__ || "http://localhost:8787";
   const money = (n) => "\u20B9" + Number(n || 0).toLocaleString("en-IN");
 
+  function splitGst(totals) {
+    const tax = Number(totals.tax || 0);
+    const cgst = Math.round(tax * 50) / 100;
+    const rate = Number(totals.subtotal || 0) > 0 && tax > 0 ? ` (${Math.round((tax / totals.subtotal * 50) * 100) / 100}%)` : "";
+    return { cgst, sgst: Math.round((tax - cgst) * 100) / 100, rate };
+  }
+
   function getParam(name) {
     return new URLSearchParams(window.location.search).get(name) || "";
   }
@@ -72,6 +79,7 @@
     const rows = (data.items || []).map((it) =>
       `<tr><td>${it.name || it.sku}</td><td>${it.quantity}</td><td>${money(it.unit_price)}</td><td>${money(it.line_total)}</td></tr>`
     ).join("");
+    const gst = splitGst(data.totals);
     document.getElementById("receipt").innerHTML = `
       <div class="biz">
         <h1>${b.name || "Tax Invoice"}</h1>
@@ -90,9 +98,11 @@
       </table>
       <div class="totals">
         <div><span>Subtotal</span><span>${money(data.totals.subtotal)}</span></div>
-        <div><span>GST</span><span>${money(data.totals.tax)}</span></div>
+        <div><span>CGST${gst.rate}</span><span>${money(gst.cgst)}</span></div>
+        <div><span>SGST${gst.rate}</span><span>${money(gst.sgst)}</span></div>
         ${data.totals.discount ? `<div><span>Discount</span><span>-${money(data.totals.discount)}</span></div>` : ""}
         <div class="grand"><span>Total</span><span>${money(data.totals.total)}</span></div>
+        <div><span>Reward wallet balance</span><span>${money(data.totals.wallet_balance)}</span></div>
       </div>
       <div class="foot">
         Paid via ${(data.payment_modes || ["cash"]).join(", ").toUpperCase()}<br/>
