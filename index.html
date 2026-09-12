@@ -1080,7 +1080,6 @@
     paymentMode: "cash",
     markPaid: true,
     member: null,
-    useMembershipDiscount: false,
     manualDiscountEnabled: false,
     manualDiscountAmount: 0,
     catalog: [],
@@ -1556,11 +1555,7 @@
   }
 
   function membershipDiscountPreview(totals) {
-    const member = POS_STATE.member;
-    if (!POS_STATE.useMembershipDiscount || !member || Number(totals.total || 0) <= 0) return 0;
-    if (member.wallet_expires_at && new Date(member.wallet_expires_at) <= new Date()) return 0;
-    const rate = Number(appState.membershipConfig?.regular_wallet_redemption_percent ?? 10);
-    return Math.round(Math.min(Number(member.wallet_balance || 0) * rate / 100, Number(totals.total || 0)) * 100) / 100;
+    return 0;
   }
 
   function formatDateTime(value) {
@@ -1935,7 +1930,6 @@
       }
       const membership = await apiFetch(`${API_ENDPOINTS.membershipLookup}?phone=${encodeURIComponent(phone)}`).catch(() => ({ found: false }));
       POS_STATE.member = membership.found ? membership.member : null;
-      POS_STATE.useMembershipDiscount = false;
       POS_STATE.customer.searched = true;
       POS_STATE.customer.lookupPhone = phone;
       posRerender();
@@ -1984,8 +1978,7 @@
     const markPaid = POS_STATE.markPaid;
     const t = posTaxBreakdown();
     const manualDiscount = posManualDiscountAmount();
-    const membershipDiscount = membershipDiscountPreview(t);
-    const orderTotals = { ...t, discount: manualDiscount + membershipDiscount, total: Math.round((t.total - membershipDiscount) * 100) / 100 };
+    const orderTotals = { ...t, discount: manualDiscount, total: Math.round((t.total - 0) * 100) / 100 };
     
     PENDING_ORDER = {
       totals: orderTotals,
@@ -2016,9 +2009,9 @@
         price_includes_gst: t.prices_include_gst
         };
       }),
-      totals: { subtotal: t.subtotal, tax_amount: t.tax, cgst_amount: t.cgst, sgst_amount: t.sgst, discount_amount: manualDiscount + membershipDiscount, total_amount: Math.round((t.total - membershipDiscount) * 100) / 100, prices_include_gst: t.prices_include_gst },
-      payments: markPaid ? [{ mode: POS_STATE.paymentMode, amount: Math.round((t.total - membershipDiscount) * 100) / 100 }] : [],
-      use_membership_discount: POS_STATE.useMembershipDiscount,
+      totals: { subtotal: t.subtotal, tax_amount: t.tax, cgst_amount: t.cgst, sgst_amount: t.sgst, discount_amount: manualDiscount, total_amount: Math.round((t.total - 0) * 100) / 100, prices_include_gst: t.prices_include_gst },
+      payments: markPaid ? [{ mode: POS_STATE.paymentMode, amount: Math.round((t.total - 0) * 100) / 100 }] : [],
+      use_membership_discount: false,
       manual_discount_amount: manualDiscount
       }
     };
@@ -2882,8 +2875,8 @@
     pos() {
       const t = posTotals();
       const manualDiscount = posManualDiscountAmount();
-      const membershipDiscount = membershipDiscountPreview(t);
-      const payableTotal = Math.round((t.total - membershipDiscount) * 100) / 100;
+      const membershipDiscount = 0;
+      const payableTotal = Math.round((t.total - 0) * 100) / 100;
       const cust = POS_STATE.customer;
       const mode = POS_STATE.paymentMode;
       const isNewCustomer = cust.mode !== "existing";
@@ -2958,9 +2951,6 @@
             ${mode === "upi" ? `<div style="text-align:center; margin-bottom:10px;"><div id="upi-qr" style="display:inline-block; padding:6px; background:#fff;"></div><div class="muted" style="font-size:11px; margin-top:4px;">Scan to pay ${money(payableTotal)} (placeholder QR)</div></div>` : ""}
             <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin-bottom:10px;">
               <input id="pos-mark-paid-check" type="checkbox" ${POS_STATE.markPaid ? "checked" : ""} /> Mark as paid
-            </label>
-            <label class="pos-check-row">
-              <input id="pos-use-membership-discount" type="checkbox" ${POS_STATE.useMembershipDiscount ? "checked" : ""} ${POS_STATE.member ? "" : "disabled"} /> Use Membership Discount${POS_STATE.member ? ` (${POS_STATE.member.tier} wallet: ${money(POS_STATE.member.wallet_balance)})` : ""}
             </label>
             <label class="pos-check-row">
               <input id="pos-manual-discount-check" type="checkbox" ${POS_STATE.manualDiscountEnabled ? "checked" : ""} /> Manual Discount
@@ -3656,11 +3646,37 @@
 
       if (POS_STATE.paymentMode === "upi") {
         const el = document.getElementById("upi-qr");
-        if (el && window.QRCode) {
+        if (el) {
           el.innerHTML = "";
           const t = posTotals();
           const upi = `upi://pay?pa=merchant@upi&pn=${encodeURIComponent("OneCounter")}&am=${t.total}&cu=INR`;
-          new window.QRCode(el, { text: upi, width: 140, height: 140 });
+          (async () => {
+            const paths = ["/upi-qr.png", "/upi-qr.svg", "/upi.png", "/upi.svg"];
+            let found = false;
+            for (const p of paths) {
+              try {
+                const res = await fetch(p, { method: "GET" });
+                if (res && res.ok) {
+                  const ct = (res.headers.get("Content-Type") || "").toLowerCase();
+                  if (ct.includes("image") || p.endsWith(".svg")) {
+                    el.innerHTML = `<img src="${p}" alt="UPI QR" style="width:140px;height:140px;display:block;margin:0 auto;background:#fff;padding:6px;border-radius:8px;"/>`;
+                    found = true;
+                    break;
+                  }
+                }
+              } catch (_) {
+                // ignore and try next path
+              }
+            }
+            if (!found) {
+              if (window.QRCode) {
+                el.innerHTML = "";
+                new window.QRCode(el, { text: upi, width: 140, height: 140 });
+              } else {
+                el.innerHTML = '<div class="muted" style="font-size:11px; text-align:center;">Use offline QR Code Scanner</div>';
+              }
+            }
+          })();
         }
       }
 
@@ -4043,7 +4059,6 @@
       POS_STATE.customer.searched = false;
       POS_STATE.customer.existing = false;
       POS_STATE.member = null;
-      POS_STATE.useMembershipDiscount = false;
       POS_STATE.customer.referralCode = "";
       POS_STATE.customer.referrerName = "";
       const digits = event.target.value.replace(/\D/g, "").slice(-10);
@@ -4069,9 +4084,6 @@
       });
     } else if (event.target.id === "pos-mark-paid-check") {
       POS_STATE.markPaid = event.target.checked;
-    } else if (event.target.id === "pos-use-membership-discount") {
-      POS_STATE.useMembershipDiscount = event.target.checked;
-      posRerender();
     } else if (event.target.id === "pos-manual-discount-check") {
       POS_STATE.manualDiscountEnabled = event.target.checked;
       if (!POS_STATE.manualDiscountEnabled) {
@@ -4092,7 +4104,6 @@
       POS_STATE.customer.referralCode = "";
       POS_STATE.customer.referrerName = "";
       POS_STATE.member = null;
-      POS_STATE.useMembershipDiscount = false;
       if (isNewCustomer) {
         POS_STATE.customer.name = "";
         POS_STATE.customer.place = "";
