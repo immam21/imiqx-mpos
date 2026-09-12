@@ -1775,15 +1775,17 @@ module.exports = async function handler(req, res) {
           await sbInsert("membership_referrals", [{ business_id: ctx.businessId, referrer_member_id: referrer.id, referred_member_id: member.id }]);
         }
       }
-      const originalTotal = roundMoney(totals.total_amount);
-      const isEligiblePurchase = markPaid && originalTotal > 0;
+      const manualDiscount = roundMoney(Number(body.manual_discount_amount || totals.discount_amount || 0));
+      const preMembershipTotal = roundMoney(Number(totals.total_amount || (Number(totals.subtotal || 0) + Number(totals.tax_amount || 0) - manualDiscount)));
+      const isEligiblePurchase = markPaid && preMembershipTotal > 0;
       const walletExpired = member && member.wallet_expires_at && new Date(member.wallet_expires_at) <= new Date();
       const availableWallet = member && !walletExpired ? Number(member.wallet_balance || 0) : 0;
       const requestedRedemption = Boolean(body.use_membership_discount) && member && isEligiblePurchase;
       const membershipDiscount = requestedRedemption
-        ? roundMoney(Math.min(availableWallet * Number(membershipSettings.regular_wallet_redemption_percent) / 100, originalTotal))
+        ? roundMoney(Math.min(availableWallet * Number(membershipSettings.regular_wallet_redemption_percent) / 100, preMembershipTotal))
         : 0;
-      const finalTotal = roundMoney(originalTotal - membershipDiscount);
+      const finalTotal = roundMoney(preMembershipTotal - membershipDiscount);
+      const totalDiscount = roundMoney(manualDiscount + membershipDiscount);
 
       const insertedOrder = await sbInsert("orders", [
         {
@@ -1802,7 +1804,8 @@ module.exports = async function handler(req, res) {
           cgst_amount: Number(totals.cgst_amount || 0),
           sgst_amount: Number(totals.sgst_amount || 0),
           prices_include_gst: Boolean(totals.prices_include_gst),
-          discount_amount: roundMoney(Number(totals.discount_amount || 0) + membershipDiscount),
+          discount_amount: totalDiscount,
+          manual_discount_amount: manualDiscount,
           total_amount: finalTotal,
           wallet_balance_after: 0,
           sold_by_user_id: actor ? actor.id : null,

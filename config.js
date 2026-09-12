@@ -13,7 +13,8 @@
   window.__ONECOUNTER_BUSINESS_ID__ = "business-main";
   window.__ONECOUNTER_STORE_ID__ = "store-main";
 
-  // Public Supabase values (safe to expose). Service-role key stays on the backend.
-  window.__ONECOUNTER_SUPABASE_URL__ = "https://oisuwwdykgpghqcvbesj.supabase.co";
-  window.__ONECOUNTER_SUPABASE_ANON_KEY__ = "sb_publishable_D8K21sPXMfV2lh_G_npiUA_-_SDzEbT";
+  // Public Supabase values (safe to expose). Leave blank by default so the app uses
+  // the local credential database unless Supabase is explicitly configured.
+  window.__ONECOUNTER_SUPABASE_URL__ = "";
+  window.__ONECOUNTER_SUPABASE_ANON_KEY__ = "";
 })();

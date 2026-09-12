@@ -74,7 +74,7 @@ async function runBackup() {
   let customerRows = 0;
   try {
     const [orders, orderItems, expenses, customers, members, walletTransactions, referrals, membershipSettings] = await Promise.all([
-      sbSelect("orders", "select=id,business_id,order_no,store_id,channel,customer_name,status,subtotal,tax_amount,cgst_amount,sgst_amount,prices_include_gst,discount_amount,total_amount,delivery_address,delivery_city,delivery_pincode,sold_by_user_id,sold_by_name,created_at&order=created_at.desc"),
+      sbSelect("orders", "select=id,business_id,order_no,store_id,channel,customer_name,status,subtotal,tax_amount,cgst_amount,sgst_amount,prices_include_gst,discount_amount,manual_discount_amount,total_amount,delivery_address,delivery_city,delivery_pincode,sold_by_user_id,sold_by_name,created_at&order=created_at.desc"),
       sbSelect("order_items", "select=order_id,sku,name,quantity,unit_price,line_total,tax_percent,taxable_amount,cgst_amount,sgst_amount,price_includes_gst"),
       sbSelect("expenses", "select=business_id,id,store_id,expense_date,expense_at,category,description,amount,payment_mode,recorded_by_user_id,recorded_by_name,created_at&order=expense_at.desc"),
       sbSelect("customers", "select=business_id,customer_code,name,phone,place,full_address,city,pincode,created_at&order=created_at.desc"),
@@ -91,8 +91,8 @@ async function runBackup() {
     const token = await googleAccessToken();
     await Promise.all([
       replaceSheetRows(token, "Sales", [
-        ["Backup At", "Invoice No", "Store ID", "Channel", "Customer Name", "Status", "Taxable Amount", "GST Amount", "CGST Amount", "SGST Amount", "Prices Include GST", "Discount Amount", "Total Amount", "Delivery Address", "Delivery City", "Delivery Pincode", "Sold By User ID", "Sold By Name", "Sale Date & Time"],
-        ...orders.map((order) => [backupAt, order.order_no, order.store_id, order.channel, order.customer_name, order.status, order.subtotal, order.tax_amount, order.cgst_amount, order.sgst_amount, order.prices_include_gst, order.discount_amount, order.total_amount, order.delivery_address, order.delivery_city, order.delivery_pincode, order.sold_by_user_id, order.sold_by_name, order.created_at])
+        ["Backup At", "Invoice No", "Store ID", "Channel", "Customer Name", "Status", "Taxable Amount", "GST Amount", "CGST Amount", "SGST Amount", "Prices Include GST", "Discount Amount", "Manual Discount Amount", "Total Amount", "Delivery Address", "Delivery City", "Delivery Pincode", "Sold By User ID", "Sold By Name", "Sale Date & Time"],
+        ...orders.map((order) => [backupAt, order.order_no, order.store_id, order.channel, order.customer_name, order.status, order.subtotal, order.tax_amount, order.cgst_amount, order.sgst_amount, order.prices_include_gst, order.discount_amount, order.manual_discount_amount || 0, order.total_amount, order.delivery_address, order.delivery_city, order.delivery_pincode, order.sold_by_user_id, order.sold_by_name, order.created_at])
       ]),
       replaceSheetRows(token, "Sales Items", [
         ["Backup At", "Invoice No", "SKU", "Item Name", "Quantity", "Unit Price", "Line Total", "GST Rate %", "Taxable Amount", "CGST Amount", "SGST Amount", "Price Includes GST"],

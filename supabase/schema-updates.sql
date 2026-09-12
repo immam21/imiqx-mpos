@@ -100,6 +100,8 @@ alter table order_items add column if not exists price_includes_gst boolean not 
 alter table orders add column if not exists cgst_amount numeric(12,2) not null default 0;
 alter table orders add column if not exists sgst_amount numeric(12,2) not null default 0;
 alter table orders add column if not exists prices_include_gst boolean not null default false;
+alter table orders add column if not exists discount_amount numeric(12,2) not null default 0;
+alter table orders add column if not exists manual_discount_amount numeric(12,2) not null default 0;
 alter table orders add column if not exists wallet_balance_after numeric(12,2) not null default 0;
 
 -- Ennaval membership and wallet program. A mobile number identifies one member

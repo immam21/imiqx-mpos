@@ -394,6 +394,54 @@
     min-height: 36px;
     padding: 6px 10px;
   }
+  .pos-action-btn {
+    min-height: 38px;
+    padding: 7px 12px;
+    font-size: 13px;
+  }
+  .pos-check-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .pos-discount-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px;
+    margin-bottom: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-foreground);
+  }
+  .pos-discount-field input {
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--color-foreground);
+    width: 100%;
+    font-size: 11px;
+    min-width: 0;
+    max-width: 110px;
+  }
+  .pos-check-row input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    accent-color: var(--color-primary);
+    transform: scale(0.9);
+  }
+  .pos-action-btn {
+    min-height: 34px !important;
+    padding: 6px 12px !important;
+    font-size: 12px !important;
+  }
 
   .content {
     flex: 1;
@@ -1032,7 +1080,8 @@
     paymentMode: "cash",
     markPaid: true,
     member: null,
-    useMembershipDiscount: false,
+    manualDiscountEnabled: false,
+    manualDiscountAmount: 0,
     catalog: [],
     lastSale: null
   };
@@ -1463,6 +1512,12 @@
     }
   }
 
+  function posManualDiscountAmount() {
+    if (!POS_STATE.manualDiscountEnabled) return 0;
+    const amount = Number(POS_STATE.manualDiscountAmount || 0);
+    return Math.max(0, Number.isFinite(amount) ? amount : 0);
+  }
+
   function posTotals() {
     let subtotal = 0;
     let tax = 0;
@@ -1476,7 +1531,8 @@
     });
     subtotal = Math.round(subtotal * 100) / 100;
     tax = Math.round(tax * 100) / 100;
-    return { subtotal, tax, total: Math.round((subtotal + tax) * 100) / 100 };
+    const manualDiscount = posManualDiscountAmount();
+    return { subtotal, tax, manual_discount: manualDiscount, total: Math.round((subtotal + tax - manualDiscount) * 100) / 100 };
   }
 
   function splitGst(tax) {
@@ -1499,11 +1555,7 @@
   }
 
   function membershipDiscountPreview(totals) {
-    const member = POS_STATE.member;
-    if (!POS_STATE.useMembershipDiscount || !member || Number(totals.total || 0) <= 0) return 0;
-    if (member.wallet_expires_at && new Date(member.wallet_expires_at) <= new Date()) return 0;
-    const rate = Number(appState.membershipConfig?.regular_wallet_redemption_percent ?? 10);
-    return Math.round(Math.min(Number(member.wallet_balance || 0) * rate / 100, Number(totals.total || 0)) * 100) / 100;
+    return 0;
   }
 
   function formatDateTime(value) {
@@ -1878,7 +1930,6 @@
       }
       const membership = await apiFetch(`${API_ENDPOINTS.membershipLookup}?phone=${encodeURIComponent(phone)}`).catch(() => ({ found: false }));
       POS_STATE.member = membership.found ? membership.member : null;
-      POS_STATE.useMembershipDiscount = false;
       POS_STATE.customer.searched = true;
       POS_STATE.customer.lookupPhone = phone;
       posRerender();
@@ -1926,8 +1977,8 @@
     }
     const markPaid = POS_STATE.markPaid;
     const t = posTaxBreakdown();
-    const membershipDiscount = membershipDiscountPreview(t);
-    const orderTotals = { ...t, discount: membershipDiscount, total: Math.round((t.total - membershipDiscount) * 100) / 100 };
+    const manualDiscount = posManualDiscountAmount();
+    const orderTotals = { ...t, discount: manualDiscount, total: Math.round((t.total - 0) * 100) / 100 };
     
     PENDING_ORDER = {
       totals: orderTotals,
@@ -1958,9 +2009,10 @@
         price_includes_gst: t.prices_include_gst
         };
       }),
-      totals: { subtotal: t.subtotal, tax_amount: t.tax, cgst_amount: t.cgst, sgst_amount: t.sgst, discount_amount: 0, total_amount: t.total, prices_include_gst: t.prices_include_gst },
-      payments: markPaid ? [{ mode: POS_STATE.paymentMode, amount: t.total }] : [],
-      use_membership_discount: POS_STATE.useMembershipDiscount
+      totals: { subtotal: t.subtotal, tax_amount: t.tax, cgst_amount: t.cgst, sgst_amount: t.sgst, discount_amount: manualDiscount, total_amount: Math.round((t.total - 0) * 100) / 100, prices_include_gst: t.prices_include_gst },
+      payments: markPaid ? [{ mode: POS_STATE.paymentMode, amount: Math.round((t.total - 0) * 100) / 100 }] : [],
+      use_membership_discount: false,
+      manual_discount_amount: manualDiscount
       }
     };
     openOrderReview(PENDING_ORDER);
@@ -1982,6 +2034,7 @@
         <div style="display:flex; justify-content:space-between;"><span>Subtotal</span><span>${money(order.totals.subtotal)}</span></div>
         <div style="display:flex; justify-content:space-between;"><span>${gstComponentLabel("CGST", order.totals)}</span><span>${money(splitGst(order.totals.tax).cgst)}</span></div>
         <div style="display:flex; justify-content:space-between;"><span>${gstComponentLabel("SGST", order.totals)}</span><span>${money(splitGst(order.totals.tax).sgst)}</span></div>
+        ${Number(order.totals.discount || 0) > 0 ? `<div style="display:flex; justify-content:space-between; color:#b91c1c;"><span>Discount</span><span>-${money(order.totals.discount)}</span></div>` : ""}
         <div style="display:flex; justify-content:space-between; font-weight:700;"><span>Total</span><span>${money(order.totals.total)}</span></div>
       </div>`;
     submit.textContent = order.paid ? "Confirm & Mark Paid" : "Confirm Order";
@@ -2008,7 +2061,8 @@
         items: pending.items,
         totals: {
           ...pending.totals,
-          discount: Number(pending.totals.discount || 0) + Number(data.membership_discount || 0),
+          manual_discount: Number(pending.payload.manual_discount_amount || 0),
+          discount: Number(pending.totals.discount || 0),
           total: Number(data.total_amount ?? pending.totals.total)
         },
         customer: pending.customer,
@@ -2027,6 +2081,8 @@
       POS_STATE.customer = { mode: "new", name: "", phone: "", place: "", existing: false, searched: false, lookupPhone: "" };
       POS_STATE.paymentMode = "cash";
       POS_STATE.markPaid = true;
+      POS_STATE.manualDiscountEnabled = false;
+      POS_STATE.manualDiscountAmount = 0;
       await loadPosCatalog();
       posRerender();
       closeOrderReview();
@@ -2067,6 +2123,8 @@
     const bizName = (appState.receiptContext && appState.receiptContext.business && appState.receiptContext.business.name) || "OneCounter";
     const lines = sale.items.map((l) => `- ${l.name} x${l.qty} = ${money(l.qty * l.unit_price)}`).join("\n");
     const ebillUrl = `${window.location.origin}/receipt.html?id=${encodeURIComponent(sale.sale_id)}`;
+    const manualDiscount = Number(sale.totals?.manual_discount || sale.totals?.discount || 0);
+    const walletDiscount = Number(sale.membership_discount || 0);
     return (
       `*${bizName}*\n` +
       `Bill: ${sale.sale_id}\n` +
@@ -2076,6 +2134,8 @@
       `Subtotal: ${money(sale.totals.subtotal)}\n` +
       `${gstComponentLabel("CGST", sale.totals)}: ${money(splitGst(sale.totals.tax).cgst)}\n` +
       `${gstComponentLabel("SGST", sale.totals)}: ${money(splitGst(sale.totals.tax).sgst)}\n` +
+      `${manualDiscount > 0 ? `Manual discount: -${money(manualDiscount)}\n` : ""}` +
+      `${walletDiscount > 0 ? `Wallet discount: -${money(walletDiscount)}\n` : ""}` +
       `*Total: ${money(sale.totals.total)}*\n` +
       `${sale.paid === false ? "Payment: PENDING" : "Paid via " + String(sale.mode || "cash").toUpperCase()}\n\n` +
       `View your e-bill: ${ebillUrl}\n\n` +
@@ -2230,11 +2290,12 @@
   }
 
   const LABEL_SIZES = {
-    "25x20": { width: 25, height: 20, businessY: 2.4, businessSize: 5, nameY: 4.3, nameSize: 4.2, nameLength: 20, codeY: 6.1, codeSize: 4, mrpY: 9, priceY: 11.4, mrpSize: 4.4, offerSize: 7, priceMaxWidth: 21, tagX: 14, tagY: 6.8, tagWidth: 8.5, barcodeX: 2, barcodeY: 12.6, barcodeWidth: 21, barcodeHeight: 3.6, barcodeValueY: 18.3, barcodeValueSize: 4.5 },
-    "50x25": { width: 50, height: 25, businessY: 3.2, businessSize: 8, nameY: 6.1, nameSize: 7, nameLength: 34, codeY: 8.7, codeSize: 5.5, mrpY: 12, priceY: 15.1, mrpSize: 6.5, offerSize: 10.5, priceMaxWidth: 46, tagX: 36.5, tagY: 9.2, tagWidth: 10.5, barcodeX: 4, barcodeY: 17, barcodeWidth: 42, barcodeHeight: 4.2, barcodeValueY: 23.6, barcodeValueSize: 6 },
-    "38x25": { width: 38, height: 25, businessY: 3, businessSize: 7, nameY: 5.8, nameSize: 6, nameLength: 27, codeY: 8.2, codeSize: 5, mrpY: 11.2, priceY: 14.4, mrpSize: 5.5, offerSize: 9, priceMaxWidth: 34, tagX: 26, tagY: 8.5, tagWidth: 9, barcodeX: 3, barcodeY: 16.5, barcodeWidth: 32, barcodeHeight: 4.2, barcodeValueY: 23.6, barcodeValueSize: 5.5 }
+    "25x20": { width: 25, height: 20, businessY: 2.4, businessSize: 5, nameY: 4.3, nameSize: 4.2, nameLength: 20, codeY: 6.1, codeSize: 4, mrpY: 9, priceY: 11.4, mrpSize: 4.4, offerSize: 7, priceMaxWidth: 21, tagX: 14, tagY: 6.8, tagWidth: 8.5, offerLabelY: 7.9, offerPriceY: 11.7, barcodeX: 2, barcodeY: 12.1, barcodeWidth: 21, barcodeHeight: 5.2, barcodeValueY: 18.3, barcodeValueSize: 4.5 },
+    "50x25": { width: 50, height: 25, businessY: 3.2, businessSize: 8, nameY: 6.1, nameSize: 7, nameLength: 34, codeY: 8.7, codeSize: 5.5, mrpY: 12, priceY: 15.1, mrpSize: 6.5, offerSize: 10.5, priceMaxWidth: 46, tagX: 36.5, tagY: 9.2, tagWidth: 10.5, offerLabelY: 10.5, offerPriceY: 15.3, barcodeX: 4, barcodeY: 15.6, barcodeWidth: 42, barcodeHeight: 6.2, barcodeValueY: 23.6, barcodeValueSize: 6 },
+    "38x25": { width: 38, height: 25, businessY: 3, businessSize: 7, nameY: 5.8, nameSize: 6, nameLength: 27, codeY: 8.2, codeSize: 5, mrpY: 11.2, priceY: 14.4, mrpSize: 5.5, offerSize: 9, priceMaxWidth: 34, tagX: 26, tagY: 8.5, tagWidth: 9, offerLabelY: 9.6, offerPriceY: 14.8, barcodeX: 3, barcodeY: 15.1, barcodeWidth: 32, barcodeHeight: 6, barcodeValueY: 23.6, barcodeValueSize: 5.5 }
   };
   let pendingLabelProducts = [];
+  let pendingLabelAction = "print";
 
   function barcodeDataUrl(text) {
     try {
@@ -2296,11 +2357,7 @@
     const pname = String(p.name || "").toUpperCase();
     doc.text(pname.length > layout.nameLength ? pname.slice(0, layout.nameLength) : pname, offsetX + layout.width / 2, layout.nameY, { align: "center" });
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(layout.codeSize);
-    doc.text(String(p.sku), offsetX + 2, layout.codeY);
-
-    const priceY = layout.priceY;
+    const priceY = layout.offerPriceY ?? layout.priceY;
     if (hasOffer) {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(layout.mrpSize);
@@ -2314,13 +2371,10 @@
       doc.setFontSize(layout.mrpSize);
       doc.text("PRICE", offsetX + 2, layout.mrpY);
     }
-    doc.setFillColor(0, 0, 0);
-    doc.rect(offsetX + layout.tagX, layout.tagY, layout.tagWidth, 2.5, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(4.2);
-    doc.text("OUR PRICE", offsetX + layout.tagX + layout.tagWidth / 2, layout.tagY + 1.8, { align: "center" });
     doc.setTextColor(0, 0, 0);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(Math.min(layout.offerSize - 1.5, 7));
+    doc.text("OFFER PRICE", offsetX + layout.width - 1.8, layout.offerLabelY ?? (layout.tagY + 1.4), { align: "right" });
     doc.setFont("helvetica", "bold");
     fitLabelFontSize(doc, pdfMoney(offer), layout.offerSize, layout.priceMaxWidth);
     doc.text(pdfMoney(offer), offsetX + layout.width - 1.8, priceY, { align: "right" });
@@ -2343,11 +2397,20 @@
       showToast("Select at least one item to print");
       return;
     }
-    openLabelPrintModal(products);
+    openLabelPrintModal(products, "print");
   }
 
-  function openLabelPrintModal(products) {
+  function openLabelPrintModal(products, action = "print") {
     pendingLabelProducts = products;
+    pendingLabelAction = action;
+    const modalTitle = document.getElementById("label-print-title");
+    const submitButton = document.querySelector("#label-print-form button[type='submit']");
+    if (modalTitle) {
+      modalTitle.textContent = action === "download" ? "Download Barcode Labels" : "Print Barcode Labels";
+    }
+    if (submitButton) {
+      submitButton.textContent = action === "download" ? "Download PDF Labels" : "Create Print Labels";
+    }
     document.getElementById("label-print-modal").classList.add("show");
     document.getElementById("label-print-copies").focus();
   }
@@ -2355,18 +2418,21 @@
   function closeLabelPrintModal() {
     document.getElementById("label-print-modal").classList.remove("show");
     pendingLabelProducts = [];
+    pendingLabelAction = "print";
+    const modalTitle = document.getElementById("label-print-title");
+    const submitButton = document.querySelector("#label-print-form button[type='submit']");
+    if (modalTitle) modalTitle.textContent = "Print Barcode Labels";
+    if (submitButton) submitButton.textContent = "Create Print Labels";
   }
 
-  async function createPrintLabels(sizeKey, copies) {
+  async function buildPrintLabelsDoc(sizeKey, copies, products) {
     if (!window.jspdf) {
-      showToast("PDF library not loaded");
-      return;
+      throw new Error("PDF library not loaded");
     }
     const isTwoUp = sizeKey === "50x25-2up";
     const layout = LABEL_SIZES[sizeKey] || LABEL_SIZES["50x25"];
     const columns = isTwoUp ? 2 : 1;
     const pageWidth = layout.width * columns;
-    const products = pendingLabelProducts;
     const businessName = await getBusinessName();
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: "mm", format: [pageWidth, layout.height], orientation: "landscape" });
@@ -2377,8 +2443,41 @@
       }
       drawLabel(doc, p, businessName, layout, (i % columns) * layout.width);
     });
-    closeLabelPrintModal();
-    openPdf(doc, `labels-${labels.length}.pdf`);
+    return { doc, filename: `labels-${labels.length}.pdf`, count: labels.length };
+  }
+
+  async function createPrintLabels(sizeKey, copies) {
+    try {
+      const products = pendingLabelProducts;
+      if (!products || !products.length) {
+        showToast("Select at least one item to print");
+        return;
+      }
+      const { doc, filename } = await buildPrintLabelsDoc(sizeKey, copies, products);
+      closeLabelPrintModal();
+      openPdf(doc, filename);
+    } catch (err) {
+      showToast(err.message || "Unable to create labels");
+    }
+  }
+
+  async function downloadLabelPdfForProducts(products, sizeKey = "50x25", copies = 1) {
+    try {
+      if (!products || !products.length) {
+        showToast("Select at least one item to download");
+        return;
+      }
+      const { doc, filename } = await buildPrintLabelsDoc(sizeKey, copies, products);
+      closeLabelPrintModal();
+      doc.save(filename);
+      showToast(`Downloaded ${filename}`);
+    } catch (err) {
+      showToast(err.message || "Unable to download PDF");
+    }
+  }
+
+  function downloadProductLabel(p) {
+    openLabelPrintModal([{ sku: p.sku, name: p.name, price: p.price || 0, mrp: p.mrp || 0, barcode: p.barcode || p.sku }], "download");
   }
 
   // 4in x 6in bill with business + store details.
@@ -2775,8 +2874,9 @@
 
     pos() {
       const t = posTotals();
-      const membershipDiscount = membershipDiscountPreview(t);
-      const payableTotal = Math.round((t.total - membershipDiscount) * 100) / 100;
+      const manualDiscount = posManualDiscountAmount();
+      const membershipDiscount = 0;
+      const payableTotal = Math.round((t.total - 0) * 100) / 100;
       const cust = POS_STATE.customer;
       const mode = POS_STATE.paymentMode;
       const isNewCustomer = cust.mode !== "existing";
@@ -2837,6 +2937,7 @@
               <div style="display:flex; justify-content:space-between;"><span>Subtotal</span><span>${money(t.subtotal)}</span></div>
               <div style="display:flex; justify-content:space-between;"><span>${gstComponentLabel("CGST", t)}</span><span>${money(splitGst(t.tax).cgst)}</span></div>
               <div style="display:flex; justify-content:space-between;"><span>${gstComponentLabel("SGST", t)}</span><span>${money(splitGst(t.tax).sgst)}</span></div>
+              ${manualDiscount > 0 ? `<div style="display:flex; justify-content:space-between; color:var(--color-danger);"><span>Manual discount</span><span>-${money(manualDiscount)}</span></div>` : ""}
               ${membershipDiscount > 0 ? `<div style="display:flex; justify-content:space-between; color:var(--color-success);"><span>Wallet discount</span><span>-${money(membershipDiscount)}</span></div>` : ""}
             </div>
             <div style="margin: 10px 0; border-top: 1px dashed var(--color-border); padding-top: 10px; display:flex; justify-content:space-between;">
@@ -2851,12 +2952,16 @@
             <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin-bottom:10px;">
               <input id="pos-mark-paid-check" type="checkbox" ${POS_STATE.markPaid ? "checked" : ""} /> Mark as paid
             </label>
-            <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin-bottom:10px;">
-              <input id="pos-use-membership-discount" type="checkbox" ${POS_STATE.useMembershipDiscount ? "checked" : ""} ${POS_STATE.member ? "" : "disabled"} /> Use Membership Discount${POS_STATE.member ? ` (${POS_STATE.member.tier} wallet: ${money(POS_STATE.member.wallet_balance)})` : ""}
+            <label class="pos-check-row">
+              <input id="pos-manual-discount-check" type="checkbox" ${POS_STATE.manualDiscountEnabled ? "checked" : ""} /> Manual Discount
             </label>
+            ${POS_STATE.manualDiscountEnabled ? `<label class="pos-discount-field">
+              <span>Discount Amount (₹)</span>
+              <input id="pos-manual-discount-amount" type="number" min="0" step="0.01" value="${POS_STATE.manualDiscountAmount || 0}" inputmode="decimal" />
+            </label>` : ""}
             <div class="grid two-col">
-              <button class="btn primary" type="button" data-action="pos-confirm-order">Confirm Order</button>
-              <button class="btn" type="button" data-action="pos-print-bill">Print Bill (PDF)</button>
+              <button class="btn primary pos-action-btn" type="button" data-action="pos-confirm-order">Confirm Order</button>
+              <button class="btn pos-action-btn" type="button" data-action="pos-print-bill">Print Bill (PDF)</button>
             </div>
           </article>
         </div>
@@ -2923,7 +3028,10 @@
         <div class="section card reveal">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
             <h3 style="margin:0;">Live Stock Snapshot</h3>
-            <button class="btn primary" type="button" data-action="print-selected-labels">Print Selected Labels</button>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+              <button class="btn primary" type="button" data-action="print-selected-labels">Print Selected Labels</button>
+              <button class="btn" type="button" data-action="download-selected-labels">Download Selected PDF</button>
+            </div>
           </div>
           <div class="table-wrap">
             <table>
@@ -2933,7 +3041,7 @@
                   const cls = Number(p.qty) <= Number(p.reorder_level) ? "warn" : "good";
                   const enc = encodeURIComponent(JSON.stringify({ sku: p.sku, name: p.name, hsn: p.hsn || "", tax_percent: p.tax_percent || 0, qty: p.qty || 0, price: p.price || 0, mrp: p.mrp || 0, cost_price: p.cost_price || 0, reorder_level: p.reorder_level || 0, location: p.location || "" }));
                   const mrpCell = (p.mrp && p.mrp > (p.price || 0)) ? `<span style="text-decoration:line-through; color:var(--color-muted-foreground);">${money(p.mrp)}</span>` : money(p.mrp || p.price || 0);
-                  return `<tr><td><input type="checkbox" class="label-select" data-product="${enc}" /></td><td class="mono">${p.sku}</td><td>${p.name}</td><td class="mono">${money(p.cost_price || 0)}</td><td class="mono">${mrpCell}</td><td class="mono">${money(p.price || 0)}</td><td>${p.qty}</td><td>${p.reorder_level}</td><td><span class="chip ${cls}">${Number(p.qty) <= Number(p.reorder_level) ? "Low" : "Healthy"}</span></td><td style="display:flex; gap:6px;"><button class="btn" type="button" data-action="edit-inventory" data-product="${enc}">Edit</button><button class="btn" type="button" data-action="print-label" data-product="${enc}">Print</button></td></tr>`;
+                  return `<tr><td><input type="checkbox" class="label-select" data-product="${enc}" /></td><td class="mono">${p.sku}</td><td>${p.name}</td><td class="mono">${money(p.cost_price || 0)}</td><td class="mono">${mrpCell}</td><td class="mono">${money(p.price || 0)}</td><td>${p.qty}</td><td>${p.reorder_level}</td><td><span class="chip ${cls}">${Number(p.qty) <= Number(p.reorder_level) ? "Low" : "Healthy"}</span></td><td style="display:flex; gap:6px; flex-wrap:wrap;"><button class="btn" type="button" data-action="edit-inventory" data-product="${enc}">Edit</button><button class="btn" type="button" data-action="print-label" data-product="${enc}">Print</button><button class="btn" type="button" data-action="download-label" data-product="${enc}">Download PDF</button></td></tr>`;
                 }).join("") || `<tr><td colspan="10">No stock data.</td></tr>`}
               </tbody>
             </table>
@@ -3538,11 +3646,37 @@
 
       if (POS_STATE.paymentMode === "upi") {
         const el = document.getElementById("upi-qr");
-        if (el && window.QRCode) {
+        if (el) {
           el.innerHTML = "";
           const t = posTotals();
           const upi = `upi://pay?pa=merchant@upi&pn=${encodeURIComponent("OneCounter")}&am=${t.total}&cu=INR`;
-          new window.QRCode(el, { text: upi, width: 140, height: 140 });
+          (async () => {
+            const paths = ["/upi-qr.png", "/upi-qr.svg", "/upi.png", "/upi.svg"];
+            let found = false;
+            for (const p of paths) {
+              try {
+                const res = await fetch(p, { method: "GET" });
+                if (res && res.ok) {
+                  const ct = (res.headers.get("Content-Type") || "").toLowerCase();
+                  if (ct.includes("image") || p.endsWith(".svg")) {
+                    el.innerHTML = `<img src="${p}" alt="UPI QR" style="width:140px;height:140px;display:block;margin:0 auto;background:#fff;padding:6px;border-radius:8px;"/>`;
+                    found = true;
+                    break;
+                  }
+                }
+              } catch (_) {
+                // ignore and try next path
+              }
+            }
+            if (!found) {
+              if (window.QRCode) {
+                el.innerHTML = "";
+                new window.QRCode(el, { text: upi, width: 140, height: 140 });
+              } else {
+                el.innerHTML = '<div class="muted" style="font-size:11px; text-align:center;">Use offline QR Code Scanner</div>';
+              }
+            }
+          })();
         }
       }
 
@@ -3736,6 +3870,15 @@
         }
         return;
       }
+      if (action === "download-label") {
+        try {
+          const p = JSON.parse(decodeURIComponent(actionBtn.dataset.product || "%7B%7D"));
+          downloadProductLabel({ sku: p.sku, name: p.name, price: p.price || 0, mrp: p.mrp || 0, barcode: p.sku });
+        } catch (_) {
+          showToast("Unable to download PDF");
+        }
+        return;
+      }
       if (action === "print-selected-labels") {
         const selected = Array.from(document.querySelectorAll(".label-select:checked")).map((cb) => {
           try {
@@ -3745,6 +3888,17 @@
           }
         }).filter(Boolean).map((p) => ({ sku: p.sku, name: p.name, price: p.price || 0, mrp: p.mrp || 0, barcode: p.sku }));
         printLabelsForProducts(selected);
+        return;
+      }
+      if (action === "download-selected-labels") {
+        const selected = Array.from(document.querySelectorAll(".label-select:checked")).map((cb) => {
+          try {
+            return JSON.parse(decodeURIComponent(cb.dataset.product || "%7B%7D"));
+          } catch (_) {
+            return null;
+          }
+        }).filter(Boolean).map((p) => ({ sku: p.sku, name: p.name, price: p.price || 0, mrp: p.mrp || 0, barcode: p.sku }));
+        openLabelPrintModal(selected, "download");
         return;
       }
       if (action === "edit-inventory") {
@@ -3905,7 +4059,6 @@
       POS_STATE.customer.searched = false;
       POS_STATE.customer.existing = false;
       POS_STATE.member = null;
-      POS_STATE.useMembershipDiscount = false;
       POS_STATE.customer.referralCode = "";
       POS_STATE.customer.referrerName = "";
       const digits = event.target.value.replace(/\D/g, "").slice(-10);
@@ -3931,8 +4084,14 @@
       });
     } else if (event.target.id === "pos-mark-paid-check") {
       POS_STATE.markPaid = event.target.checked;
-    } else if (event.target.id === "pos-use-membership-discount") {
-      POS_STATE.useMembershipDiscount = event.target.checked;
+    } else if (event.target.id === "pos-manual-discount-check") {
+      POS_STATE.manualDiscountEnabled = event.target.checked;
+      if (!POS_STATE.manualDiscountEnabled) {
+        POS_STATE.manualDiscountAmount = 0;
+      }
+      posRerender();
+    } else if (event.target.id === "pos-manual-discount-amount") {
+      POS_STATE.manualDiscountAmount = Number(event.target.value || 0);
       posRerender();
     } else if (event.target.name === "pos-payment-mode") {
       posSetPayment(event.target.value);
@@ -3945,7 +4104,6 @@
       POS_STATE.customer.referralCode = "";
       POS_STATE.customer.referrerName = "";
       POS_STATE.member = null;
-      POS_STATE.useMembershipDiscount = false;
       if (isNewCustomer) {
         POS_STATE.customer.name = "";
         POS_STATE.customer.place = "";
@@ -4061,10 +4219,14 @@
     }
   });
 
-  labelPrintForm.addEventListener("submit", (event) => {
+  labelPrintForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const size = document.getElementById("label-print-size").value;
     const copies = Math.min(100, Math.max(1, Math.floor(Number(document.getElementById("label-print-copies").value) || 1)));
+    if (pendingLabelAction === "download") {
+      await downloadLabelPdfForProducts(pendingLabelProducts, size, copies);
+      return;
+    }
     createPrintLabels(size, copies);
   });
 
